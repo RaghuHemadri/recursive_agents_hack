@@ -18,7 +18,7 @@ import time
 
 from .config import ROOT, RUNS
 
-ALLOWED_FAMILIES = {"nemotron", "qwen", "google", "openai", "deepseek"}  # Nemotron is the default (routing.yaml)
+ALLOWED_FAMILIES = {"nemotron", "qwen", "google", "openai"}  # Nemotron is the default (routing.yaml)
 IMAGE_ROLES = {"scout", "analyst", "verifier"}
 POOL_SIZE = int(os.environ.get("GROUNDHOG_BROWSERS", "0"))  # >0: parallel headless browsers sharing the human's sign-in
 WORKERS = max(1, POOL_SIZE)

@@ -1,6 +1,6 @@
 # EDITABLE by the improver. Benchmark weights per job (scores frozen in frozen/benchmarks.yaml).
-# Nemotron is the default family; Qwen3.8 VL, Gemma-4 VL (vision) and gpt-oss-120b, DeepSeek-V4-Flash (text) are the
-# alternatives the router and Switchyard's capable tier can pick. vision_roles only get image-capable models.
+# Nemotron is the default family (all 5 NVIDIA models served on Crusoe); Qwen3.8 VL, Gemma-4 VL (vision) and
+# gpt-oss-120b (text) are the alternatives the router and Switchyard's capable tier can pick. vision_roles only get image-capable models.
 jobs:
   planning:          {tau_bench: 0.4, terminal_bench: 0.3, ifbench: 0.3}       # lead (text): plan + definition of done
   tool_exploration:  {webvoyager: 0.5, osworld: 0.3, tau_bench: 0.2}          # scout (vision): explore the portal

@@ -20,8 +20,6 @@ PRICES = {
     "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B": (0.30, 2.40),
     "nvidia/NVIDIA-Nemotron-3.5-Super-VL": (0.30, 2.40),  # assumed = Super
     "nvidia/Nemotron-3-Nano-Omni-Reasoning-30B-A3B": (0.30, 1.83),
-    "deepseek-ai/Deepseek-V4-Flash": (0.14, 0.28),
-    "deepseek-ai/DeepSeek-V4-Pro": (1.74, 3.48),
     "openai/gpt-oss-120b": (0.05, 0.20),
     "zai-org/GLM-5.3": (1.40, 4.40),
     "Qwen/Qwen3.8-27B": (0.10, 0.40),

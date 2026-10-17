@@ -26,11 +26,6 @@ models:
     scores: {mmlu_pro: 78.3, aime25: 89.1, gpqa: 73.0, livecodebench: 68.3, hle: 10.6, terminal_bench: 8.5,
              swe_bench: 38.8, tau_bench: 49.0, bfcl: 53.8, ifbench: 71.5, arena_hard: 67.7, long_context: 86.3}
     source: https://huggingface.co/nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16
-  deepseek-ai/Deepseek-V4-Flash:
-    family: deepseek
-    price: [0.14, 0.28]
-    scores: {mmlu_pro: 86.2, gpqa: 88.1, hle: 34.8, livecodebench: 91.6, terminal_bench: 56.9, swe_bench: 79.0}
-    source: https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash
   nvidia/NVIDIA-Nemotron-3.5-Super-VL:
     family: nemotron
     vision: true
