@@ -7,7 +7,8 @@ therefore the per-task routing decision. Harness skills use Deep Agents `skills`
 state). BRAIN.md is appended by `SkillsThenBrain`, which takes Deep Agents' skills slot, so every agent's system prompt
 is: fixed prompt (guardrails, role, Deep Agents tool docs, skills index) and then BRAIN.md last, in a stable order.
 
-GroundhogMiddleware adds: per-agent step cap, repeated-call guard, per-task token budget, 429/503 fallback,
+GroundhogMiddleware adds: per-agent step cap, repeated-call guard, per-task token budget and wall-clock timeout,
+429/503 fallback,
 Switchyard-style escalation after tool errors, cost/caching log and the trace used by the reflector and improver.
 """
 import json
@@ -105,7 +106,7 @@ class GroundhogMiddleware(AgentMiddleware):
     def __init__(self, team: "Team", st: dict, role: str, job: str, model_id: str, avoid_family: str | None = None):
         super().__init__()
         self.team, self.st, self.role, self.job, self.model_id, self.avoid = team, st, role, job, model_id, avoid_family
-        self.steps, self.errors, self.seen = 0, 0, {}
+        self.steps, self.errors, self.repeats, self.seen = 0, 0, 0, {}
 
     def _ev(self, **e):
         self.st["trace"].append(dict(step=len(self.st["trace"]), t=round(time.time() - self.st["t0"], 1),
@@ -114,14 +115,21 @@ class GroundhogMiddleware(AgentMiddleware):
     def wrap_model_call(self, request, handler):
         st, cfg = self.st, self.team.h["routing"]
         self.steps += 1
-        if st["tokens"] > self.team.token_budget or self.steps > self.team.step_cap:
-            self._ev(kind="guard", text="token budget" if st["tokens"] > self.team.token_budget else "step cap")
-            return AIMessage(content="ANSWER: unsolved (guard tripped)")
-        if self.errors >= cfg.get("escalation", {}).get("after_tool_errors", 2) and not st.get(f"esc_{self.role}"):
+        guard = ("token budget" if st["tokens"] > self.team.token_budget else "step cap" if self.steps > self.team.step_cap
+                 else "task timeout" if time.time() - st["t0"] > self.team.task_timeout_s else None)
+        if guard:
+            self._ev(kind="guard", text=guard)
+            return AIMessage(content=f"ANSWER: unsolved ({guard})")
+        esc = cfg.get("escalation", {})
+        if (self.errors >= esc.get("after_tool_errors", 2) or self.repeats >= esc.get("after_repeated_calls", 2)) \
+                and not st.get(f"esc_{self.role}"):
             st[f"esc_{self.role}"] = True
             new = self.team.router.pick(self.role, self.job, capable=True, avoid_family=self.avoid)
             if new != self.model_id:
-                self._ev(kind="escalate", text=f"{self.model_id} -> {new} after {self.errors} tool errors")
+                why = f"{self.errors} tool errors, {self.repeats} repeated calls"
+                self._ev(kind="escalate", text=f"{self.model_id} -> {new} after {why}")
+                LLM._log(dict(event="escalate", role=self.role, job=self.job, frm=self.model_id, to=new, why=why,
+                              task=st["task"]["id"], ts=time.time()))
                 self.model_id = new
         try:
             with self.team.llm._sem(self.model_id):
@@ -130,6 +138,8 @@ class GroundhogMiddleware(AgentMiddleware):
             Router.cool_down(self.model_id)
             fb = self.team.router.pick(self.role, self.job, avoid_family=self.avoid)
             self._ev(kind="fallback", text=f"{self.model_id} -> {fb}: {str(e)[:80]}")
+            LLM._log(dict(event="fallback", role=self.role, job=self.job, frm=self.model_id, to=fb, why=str(e)[:120],
+                          task=st["task"]["id"], ts=time.time()))
             self.model_id = fb
             resp = handler(request.override(model=chat_model(fb)))
         st["models"][self.role], st["jobs"][self.role] = self.model_id, self.job
@@ -155,6 +165,7 @@ class GroundhogMiddleware(AgentMiddleware):
         name, args = tc["name"], tc.get("args", {})
         key = name + json.dumps(args, sort_keys=True, default=str)
         self.seen[key] = self.seen.get(key, 0) + 1
+        self.repeats += self.seen[key] > 1
         if self.seen[key] > 2:
             self._ev(kind="guard", tool=name, args=args, text="repeated call")
             return ToolMessage(content="GUARD: repeated identical call. Stop and report what you have.", tool_call_id=tc["id"])
@@ -176,10 +187,10 @@ class GroundhogMiddleware(AgentMiddleware):
 
 class Team:
     def __init__(self, harness: dict, brain_md: str = "", llm: LLM | None = None, token_budget: int = 600_000,
-                 step_cap: int = 16, trace_dir: Path | None = None):
+                 step_cap: int = 16, trace_dir: Path | None = None, task_timeout_s: int = 480):
         self.h, self.brain_md, self.llm = harness, brain_md, llm or LLM()
         self.router = Router(harness["routing"])
-        self.token_budget, self.step_cap, self.trace_dir = token_budget, step_cap, trace_dir
+        self.token_budget, self.step_cap, self.trace_dir, self.task_timeout_s = token_budget, step_cap, trace_dir, task_timeout_s
         self.subs: dict[str, tuple[str, str, str]] = {}  # subagent name -> (role, job, model)
 
     def _tools(self, db: str):

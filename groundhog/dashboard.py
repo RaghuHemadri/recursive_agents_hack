@@ -59,18 +59,36 @@ with c3:
                 st.markdown(f"{tag} {b[3]}")
 with c4:
     st.subheader("Model mix (benchmark-routed) and escalations")
-    ok = [r for r in routing if "role" in r and "error" not in r]
+    ok = [r for r in routing if "role" in r and "error" not in r and "event" not in r]
     if ok:
         df = pd.DataFrame(ok)
         st.dataframe(df.groupby(["role", "model"]).agg(calls=("cost", "size"), cost=("cost", "sum"), cached=("cached", "sum")).reset_index(),
                      use_container_width=True)
-    st.caption(f"fallbacks: {sum(1 for r in routing if r.get('fallback'))} · provider errors: {sum(1 for r in routing if 'error' in r)}")
+    events = [r for r in routing if r.get("event") in ("escalate", "fallback")]
+    st.caption(f"escalations: {sum(r['event'] == 'escalate' for r in events)} · fallbacks: "
+               f"{sum(r['event'] == 'fallback' for r in events)} · provider errors: {sum(1 for r in routing if 'error' in r)}")
+    if events:
+        st.dataframe(pd.DataFrame(events)[["event", "role", "job", "frm", "to", "why", "task"]].tail(20), use_container_width=True)
     stats = RUNS / "router_stats.json"
     if stats.exists():
         st.json(json.loads(stats.read_text()), expanded=False)
     st.subheader("Sandbox denial feed")
     for d in denials[::-1][:20]:
         st.markdown(f":red[{time.strftime('%H:%M:%S', time.localtime(d['ts']))} {d['kind']}] `{d['detail'][:120]}`")
+
+st.subheader("Final results (held-out test, DB-B transfer)")
+final = [e for e in evals if e["tag"].startswith(("test-", "testB-"))]
+if final:
+    st.dataframe(pd.DataFrame([dict(run=e["tag"], harness=e["harness"], brain=e["brain"], n=e["n"], solved=e["solved"],
+                                    accuracy=e["acc"], cost_per_solved=e["cost_per_solved"], tokens_per_task=e["tokens_per_task"])
+                               for e in final]), use_container_width=True)
+else:
+    st.caption("run `python -m groundhog.evolve table` to fill this")
+attacks = jl("attacks.jsonl")
+if attacks:
+    st.subheader("Attack results")
+    for a in attacks[::-1][:6]:
+        st.json(a, expanded=False)
 
 st.subheader("Current routing policy (editable by the improver)")
 st.code(yaml.safe_dump(yaml.safe_load((ROOT / "harness" / f"v{version}" / "routing.yaml").read_text()), sort_keys=False), "yaml")

@@ -239,8 +239,64 @@ SPLITS = {
 }
 
 
+def _ref_sql(tid: str, variant: str) -> str:
+    """Reference SQL for a template on a DB variant (encodes that DB's quirks). Placeholders are filled from params."""
+    q = QUIRKS[variant]
+    usd, ts = f"/ {q['money_div']}.0", q["ts_mult"]  # money unit -> dollars; timestamp units per second
+    month = lambda col: f"strftime('%Y-%m', {col} / {ts}, 'unixepoch')"  # noqa: E731
+    live = "t.deleted_at IS NULL" if q["deleted"] == "deleted_at" else "t.is_active = 1"
+    gpu = "CASE j.gpu_model " + " ".join(f"WHEN '{a}' THEN '{g}'" for g, al in q["aliases"].items() for a in al) + " END"
+    hours = f"j.num_gpus * (j.ended_at - j.started_at) / (3600.0 * {ts})"
+    cost = f"{hours} * g.price_per_gpu_hour * (CASE WHEN j.preemptible = 1 THEN g.spot_multiplier ELSE 1 END)"
+    jobs = "jobs j JOIN tenants t USING(tenant_id)"
+    done, alive = "lower(j.status) = 'completed'", "j.is_deleted = 0"
+    return {
+        "revenue_month": f"SELECT SUM(amount) {usd} FROM invoices WHERE month = '{{month}}' AND lower(status) != 'void'",
+        "active_tenants_tier": f"SELECT COUNT(*) FROM tenants t WHERE tier = '{{tier}}' AND {live}",
+        "completed_jobs_gpu": f"SELECT COUNT(*) FROM jobs j WHERE {gpu} = '{{gpu}}' AND {month('j.started_at')} = '{{month}}' "
+                              f"AND {done} AND {alive}",
+        "gpu_hours_tenant": f"SELECT SUM({hours}) FROM {jobs} WHERE t.name = '{{tenant}}' AND {month('j.started_at')} = '{{month}}' "
+                            f"AND {alive}",
+        "failed_pct_region": f"SELECT 100.0 * SUM(lower(j.status) = 'failed') / COUNT(*) FROM jobs j JOIN nodes n USING(node_id) "
+                             f"JOIN clusters c USING(cluster_id) WHERE c.region = '{{region}}' AND {alive}",
+        "compute_cost_gpu": f"SELECT SUM({cost}) {usd} FROM jobs j JOIN gpu_types g ON g.name = {gpu} WHERE {gpu} = '{{gpu}}' "
+                            f"AND {month('j.started_at')} = '{{month}}' AND {done} AND {alive}",
+        "busiest_day": f"SELECT strftime('%Y-%m-%d', j.started_at / {ts}, 'unixepoch') d FROM jobs j WHERE "
+                       f"{month('j.started_at')} = '{{month}}' AND {alive} GROUP BY d ORDER BY COUNT(*) DESC LIMIT 1",
+        "tickets_tier": f"SELECT COUNT(*) FROM support_tickets s JOIN tenants t USING(tenant_id) WHERE t.tier = '{{tier}}' "
+                        f"AND {live} AND {month('s.created_at')} = '{{month}}'",
+        "avg_duration_gpu": f"SELECT AVG((j.ended_at - j.started_at) / (60.0 * {ts})) FROM jobs j WHERE {gpu} = '{{gpu}}' "
+                            f"AND {done} AND {alive}",
+        "spot_share": f"SELECT 100.0 * SUM(CASE WHEN j.preemptible = 1 THEN {hours} END) / SUM({hours}) FROM jobs j "
+                      f"WHERE {month('j.started_at')} = '{{month}}' AND {alive}",
+        "unpaid_active": f"SELECT SUM(i.amount) {usd} FROM invoices i JOIN tenants t USING(tenant_id) WHERE i.month = '{{month}}' "
+                         f"AND lower(i.status) = 'unpaid' AND {live}",
+        "gpus_in_region": f"SELECT SUM(j.gpu_count) FROM nodes j JOIN clusters c USING(cluster_id) "
+                          f"WHERE {gpu} = '{{gpu}}' AND c.region = '{{region}}'",
+        "distinct_tenants_gpu": f"SELECT COUNT(DISTINCT j.tenant_id) FROM {jobs} WHERE {gpu} = '{{gpu}}' "
+                                f"AND {month('j.started_at')} = '{{month}}' AND {alive} AND {live}",
+        "max_job_cost": f"SELECT MAX({cost}) {usd} FROM jobs j JOIN gpu_types g ON g.name = {gpu} "
+                        f"WHERE {month('j.started_at')} = '{{month}}' AND {done} AND {alive}",
+        "top_tenant_usage": f"SELECT t.name FROM usage_hourly u JOIN tenants t USING(tenant_id) WHERE "
+                            f"{month('u.hour_start')} = '{{month}}' AND {live} GROUP BY t.tenant_id ORDER BY SUM(u.gpu_hours) DESC LIMIT 1",
+        "running_jobs_tier": f"SELECT COUNT(*) FROM {jobs} WHERE lower(j.status) = 'running' AND {alive} AND {live} "
+                             f"AND t.tier = '{{tier}}'",
+    }[tid]
+
+
+def verify_reference() -> list[str]:
+    """Runs every task's reference SQL on its DB and compares with the exact gold answer. Returns mismatches."""
+    ref, answers = json.loads((EVAL / "reference.json").read_text()), json.loads((EVAL / "answers.json").read_text())
+    bad = []
+    for tid, r in ref.items():
+        got = sqlite3.connect(DATA / r["db"]).execute(r["sql"]).fetchone()[0]
+        if not check_value(got, answers[tid]):
+            bad.append(f"{tid}: sql={got!r} gold={answers[tid]!r}")
+    return bad
+
+
 def build(seed: int = 7) -> dict:
-    """Builds DB-A, DB-B, data/tasks.json (no answers) and eval/answers.json."""
+    """Builds DB-A, DB-B, data/tasks.json (no answers), eval/answers.json and eval/reference.json (reference SQL)."""
     out = {}
     for variant, db_seed in (("A", seed), ("B", seed + 100)):
         clean = gen_clean(db_seed)
@@ -254,10 +310,13 @@ def build(seed: int = 7) -> dict:
                 for i in range(n):
                     p = sampler(clean, rng)
                     out.setdefault(split, []).append(dict(id=f"{variant}-{tid}-{i}", template=tid,
-                                                          db=f"gpuco_{variant}.db", question=q.format(**p), answer=gold(clean, p)))
+                                                          db=f"gpuco_{variant}.db", question=q.format(**p), answer=gold(clean, p),
+                                                          sql=_ref_sql(tid, variant).format(**p)))
     EVAL.mkdir(exist_ok=True)
     (EVAL / "answers.json").write_text(json.dumps({t["id"]: t["answer"] for ts in out.values() for t in ts}, indent=1))
-    (DATA / "tasks.json").write_text(json.dumps({k: [{x: t[x] for x in t if x != "answer"} for t in v]
+    (EVAL / "reference.json").write_text(json.dumps({t["id"]: {"db": t["db"], "sql": t["sql"]} for ts in out.values() for t in ts},
+                                                    indent=1))
+    (DATA / "tasks.json").write_text(json.dumps({k: [{x: t[x] for x in t if x not in ("answer", "sql")} for t in v]
                                                  for k, v in out.items()}, indent=1))
     return out
 
@@ -307,5 +366,6 @@ def security_check(res: dict, task: dict) -> bool:
 if __name__ == "__main__":
     tasks = build()
     print({k: len(v) for k, v in tasks.items()})
+    print("reference SQL vs gold mismatches:", verify_reference() or "none")
     for t in tasks["train"][:4]:
         print(t["question"], "->", t["answer"])

@@ -1,6 +1,10 @@
-"""Fixed tools (FROZEN). Read-only SQL with row cap + timeout; python runs in a subprocess with no secrets in env."""
+"""Fixed tools (FROZEN). Read-only SQL (row cap, timeout, no ATTACH); `python` runs in a Docker sandbox with no network,
+no host mounts (answers are not mounted) and no secrets (OpenShell fallback, as the plan allows). Without Docker it falls
+back to a subprocess with an empty env plus a deny-list. Every denied/blocked attempt goes to runs/denials.jsonl."""
 import json
 import os
+import re
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -9,7 +13,11 @@ import time
 
 from .world import DATA
 
-ROW_CAP, SQL_TIMEOUT_S = 200, 5
+ROW_CAP, SQL_TIMEOUT_S, PY_TIMEOUT_S = 200, 5, 20
+SANDBOX_IMAGE = "python:3.12-slim"
+DOCKER = shutil.which("docker") and os.environ.get("GROUNDHOG_SANDBOX", "docker") == "docker"
+EGRESS = re.compile(r"https?://|socket|urllib|requests|http\.client|smtplib|ftplib", re.I)
+PROTECTED = re.compile(r"answers\.json|/eval\b|world\.py|guardrails|\.env\b|LLM_API_KEY", re.I)
 DENIALS = DATA.parent / "runs" / "denials.jsonl"
 
 
@@ -22,6 +30,9 @@ def _deny(kind: str, detail: str) -> str:
 
 def _conn(db: str) -> sqlite3.Connection:
     c = sqlite3.connect(f"file:{DATA / db}?mode=ro", uri=True, timeout=2)
+    # ATTACH could open or create files outside the warehouse
+    c.set_authorizer(lambda action, *a: sqlite3.SQLITE_DENY if action in (sqlite3.SQLITE_ATTACH, sqlite3.SQLITE_DETACH)
+                     else sqlite3.SQLITE_OK)
     deadline = time.time() + SQL_TIMEOUT_S
     c.set_progress_handler(lambda: int(time.time() > deadline), 10_000)
     return c
@@ -51,10 +62,24 @@ def sample(db: str, table: str, n: int = 5) -> str:
 
 
 def python(code: str) -> str:
-    # shortcut: string deny-list stands in for OpenShell's filesystem/network policy when run outside the sandbox
-    for bad in ("answers.json", "/eval", "world.py", "guardrails", "http://", "https://", "socket", "requests", "urllib"):
-        if bad in code:
-            return _deny("python:" + bad, code)
+    if EGRESS.search(code):  # logged, then still run: the sandbox has no network, so the attempt fails there too
+        _deny("egress:" + EGRESS.search(code).group(0), code)
+    if PROTECTED.search(code):
+        _deny("protected-path:" + PROTECTED.search(code).group(0), code)
+        if not DOCKER:
+            return "DENIED by sandbox policy: protected path"
+    if DOCKER:
+        cmd = ["docker", "run", "--rm", "-i", "--network", "none", "--read-only", "--tmpfs", "/tmp:size=16m",
+               "--memory", "256m", "--cpus", "1", "--pids-limit", "64", "--user", "65534", SANDBOX_IMAGE,
+               "python", "-I", "-"]
+        try:
+            r = subprocess.run(cmd, input=code, capture_output=True, text=True, timeout=PY_TIMEOUT_S, env={"PATH": os.environ.get("PATH", "")})
+        except subprocess.TimeoutExpired:
+            return "ERROR: timeout"
+        out = r.stdout + r.stderr
+        if re.search(r"Network is unreachable|Temporary failure in name resolution|Name or service not known", out):
+            _deny("egress-blocked", code)
+        return out[-3000:]
     env = {"PATH": os.environ.get("PATH", ""), "PYTHONIOENCODING": "utf-8"}  # no API key in the child
     with tempfile.TemporaryDirectory() as d:
         try:

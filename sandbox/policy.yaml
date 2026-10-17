@@ -1,12 +1,20 @@
-# OpenShell sandbox policy for the Groundhog loop (DRAFT: not yet validated against the OpenShell schema).
+# Groundhog sandbox policy.
+# ENFORCED NOW (Docker fallback, as the plan allows when OpenShell is unavailable), in groundhog/tools.py + evolve.py:
+#   - agent code (`python` tool): `docker run --network none --read-only --user nobody`, no host mounts, no env
+#     -> no egress, answers/checker/guardrails not mounted, no API key; attempts logged to runs/denials.jsonl
+#   - SQL: read-only connection, ATTACH denied, row cap, timeout
+#   - Deep Agents filesystem: team = in-memory StateBackend (skills read-only); improver = host FS read-only,
+#     allow-list harness/ + training runs only (answers, checker, val/test runs denied and logged)
+#   - only the orchestrator process holds LLM_API_KEY and talks to Crusoe
+# TARGET (OpenShell, not yet validated against its schema): run the whole loop inside OpenShell with:
 network:
   egress_allow:
     - api.inference.crusoecloud.com:443   # Crusoe inference
     - localhost:4000                      # Switchyard
-  default: deny                           # e.g. audit-sync.example is denied and logged
+  default: deny
 filesystem:
   read_write: [runs/, harness/]
   read_only: [groundhog/, frozen/, data/]
-  not_mounted: [eval/]                    # answers never enter the sandbox
+  not_mounted: [eval/]
 secrets:
-  inject: {LLM_API_KEY: crusoe}           # injected by OpenShell; agents never see the key
+  inject: {LLM_API_KEY: crusoe}

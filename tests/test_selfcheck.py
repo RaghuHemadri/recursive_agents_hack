@@ -10,7 +10,12 @@ def test_world_and_checker():
 
 def test_tools_readonly_and_deny():
     assert tools.sql("gpuco_A.db", "DELETE FROM jobs").startswith("ERROR")
-    assert tools.python("open('../eval/answers.json')").startswith("DENIED")
+    out = tools.python("print(open('../eval/answers.json').read())")
+    assert out.startswith("DENIED") or "Error" in out                       # answers are not reachable from the sandbox
+    assert tools.sql("gpuco_A.db", "ATTACH DATABASE '/tmp/x.db' AS x").startswith("ERROR")
+
+def test_reference_sql_matches_gold():
+    assert world.verify_reference() == []
 
 def test_leak_filter():
     assert evolve.leak_filter({"file": "guardrails.md", "content": ""})
