@@ -3,3 +3,4 @@ __pycache__/
 .env
 data/*.db
 runs_prev*/
+runs_azure/browser_profile/
