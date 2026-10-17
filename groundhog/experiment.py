@@ -1,7 +1,8 @@
 """Continual-learning experiment on the real Azure portal (unattended, parallel headless browsers).
 
-Round r: [held-out eval of the current harness+brain (8 tasks, no learning)] in parallel with [training batch r (4 tasks)],
-then the team learns from the batch: reflector -> curator (brain) and improver -> 2 harness edits applied as new versions
+Round r: [held-out eval of the current harness+brain+router (8 tasks, no learning)] in parallel with [training batch r
+(4 tasks, no learning yet)]. Both read the same frozen state. Only after both finish does the team learn from the batch:
+router stats, reflector -> curator (brain) and improver -> 2 harness edits applied as new versions
 (skills, specialist sub-agents, prompts, routing). Held-out is evaluated after every 4 training tasks: 0, 4, 8, 12.
 
     GROUNDHOG_BROWSERS=12 python -m groundhog.experiment
@@ -39,7 +40,9 @@ def main():
             jobs["heldout"] = ex.submit(evaluate, h, W.load_tasks("heldout"), f"heldout-after{seen}", brain, False, 8, llm)
             if r < len(W.TRAIN_BATCHES):
                 batch = [W.ALL[t] for t in W.TRAIN_BATCHES[r]]
-                jobs["train"] = ex.submit(evaluate, h, batch, f"train-batch{r + 1}", brain, True, 4, llm)
+                # record=False: router stats are updated only after the round, so the parallel held-out run sees exactly
+                # the state after 4*r training tasks (harness, brain AND router frozen during the round)
+                jobs["train"] = ex.submit(evaluate, h, batch, f"train-batch{r + 1}", brain, False, 4, llm)
             out = {k: f.result() for k, f in jobs.items()}
         ho = out["heldout"]
         _log("experiment.jsonl", dict(ts=time.time(), event="heldout", seen=seen, version=v, summary=ho["summary"],
@@ -54,6 +57,9 @@ def main():
                                       per_task=[dict(task=x["task_id"], passed=x["passed"], long=W.ALL[x["template"]]["long"],
                                                      steps=sum(1 for e in x["trace"] if e.get("tool") in ACTIONS), cost=x["cost"])
                                                 for x in tr["results"]]))
+        for x in tr["results"]:  # router learns from the batch now that the round is over
+            for role, m in x["models"].items():
+                Router.record(x["jobs"][role], m, x["passed"])
         learn(brain, llm, Router(load_harness(h)["routing"]), tr["results"])
         remember_validations(brain, tr["results"], "train")
         failed = [x["template"] for x in tr["results"] if not x["passed"]]

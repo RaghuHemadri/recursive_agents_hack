@@ -358,9 +358,15 @@ def reset(task: dict) -> None:
     def go():
         if not B.page.url.startswith(HOME):
             B.page.goto(HOME, timeout=60_000)
-        for _ in range(60):  # the portal bounces through /auth/login before landing on #home when already signed in
-            if "#home" in B.page.url or "login.microsoftonline" in B.page.url:
+        # the portal bounces through /auth/login before it renders; wait for its global search bar (= signed in, loaded)
+        for _ in range(90):
+            if "login.microsoftonline" in B.page.url:
                 break
+            try:
+                if "/auth/login" not in B.page.url and B.page.query_selector("input[type=search]"):
+                    break
+            except Exception:  # navigation in progress
+                pass
             time.sleep(1)
         B.observe()
     B.run(go, timeout=120)

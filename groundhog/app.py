@@ -21,6 +21,7 @@ import time
 
 os.environ.setdefault("GROUNDHOG_WORLD", "azure")
 
+import yaml  # noqa: E402
 from flask import Flask, jsonify, request, send_file  # noqa: E402
 
 from .agent import Team, load_harness  # noqa: E402
@@ -260,6 +261,74 @@ def api_recent():
     return jsonify(items=sorted(items, key=lambda x: -x["ts"])[:14])
 
 
+@app.get("/shots/<name>")
+def shot(name):
+    p = RUNS / "shots" / os.path.basename(name)
+    return send_file(p, mimetype="image/jpeg") if p.exists() else ("", 404)
+
+
+def _harness_inventory(d) -> dict:
+    import pathlib
+    d = pathlib.Path(d)
+    skills = sorted(p.parent.name for p in d.glob("skills/*/SKILL.md"))
+    try:
+        sp = yaml.safe_load((d / "subagents.yaml").read_text()) or {}
+    except Exception:
+        sp = {}
+    specs = sorted((sp.get("specialists") or {}).keys())
+    return dict(skills=skills, specialists=specs, subagents=["scout", "analyst-<job>", "verifier-<job>", *specs])
+
+
+@app.get("/api/results")
+def api_results():
+    ex = _jl("experiment.jsonl")
+    curve = []
+    for e in ex:
+        if e.get("event") != "heldout":
+            continue
+        pt = e["per_task"]
+        lo, sh = [x for x in pt if x["long"]], [x for x in pt if not x["long"]]
+        solved = [x for x in pt if x["passed"]]
+        curve.append(dict(seen=e["seen"], version=e["version"], n=len(pt), solved=len(solved), long_n=len(lo),
+                          long_solved=sum(x["passed"] for x in lo), short_n=len(sh), short_solved=sum(x["passed"] for x in sh),
+                          steps=round(sum(x["steps"] for x in pt) / max(1, len(pt)), 1),
+                          long_steps=round(sum(x["steps"] for x in lo) / max(1, len(lo)), 1),
+                          cost=round(sum(x["cost"] for x in pt), 4),
+                          cost_per_solved=round(sum(x["cost"] for x in pt) / len(solved), 4) if solved else None,
+                          tokens=e["summary"].get("tokens_per_task"), per_task=pt))
+    train = [dict(batch=e["batch"], version=e["version"], solved=e["summary"]["solved"], n=e["summary"]["n"], per_task=e["per_task"])
+             for e in ex if e.get("event") == "train"]
+    adapt = [e for e in ex if e.get("event") == "adapt"]
+    versions = sorted(int(p.name[1:]) for p in HARNESS.glob("v*") if p.name[1:].isdigit())
+    growth = [dict(version=v, **_harness_inventory(HARNESS / f"v{v}")) for v in versions]
+    edits = [a for a in _jl("archive.jsonl") if a.get("status") == "accepted"]
+    bs = brain.bullets(include_hidden=True)
+    log = _jl("routing.jsonl")
+    calls = [x for x in log if "role" in x and "event" not in x and "error" not in x]
+    by_model = {}
+    for x in calls:
+        m = by_model.setdefault(x["model"], dict(model=x["model"], calls=0, cost=0.0, nemotron="nemotron" in x["model"].lower()))
+        m["calls"] += 1
+        m["cost"] = round(m["cost"] + x.get("cost", 0), 4)
+    sy = [x for x in log if x.get("event") == "switchyard"]
+    den = _jl("denials.jsonl")
+    kinds = {}
+    for d in den:
+        k = d["kind"].split(":")[0]
+        kinds[k] = kinds.get(k, 0) + 1
+    return jsonify(curve=curve, train=train, adapt=adapt, growth=growth, edits=edits[-12:],
+                   brain=dict(total=len(bs), active=sum(1 for b in bs if not b["retired"] and not b["quarantined"]),
+                              trusted=sum(1 for b in bs if b["trusted"]), quarantined=sum(1 for b in bs if b["quarantined"]),
+                              retired=sum(1 for b in bs if b["retired"]), created=sorted(b["created"] for b in bs if b.get("created")),
+                              top=sorted([b for b in bs if not b["quarantined"]], key=lambda b: (-b["trusted"], -b["helpful"]))[:8]),
+                   models=sorted(by_model.values(), key=lambda m: -m["calls"]),
+                   switchyard=dict(capable=sum(1 for x in sy if x["tier"] == "capable"), efficient=sum(1 for x in sy if x["tier"] == "efficient")),
+                   escalations=sum(1 for x in log if x.get("event") == "escalate"), fallbacks=sum(1 for x in log if x.get("event") == "fallback"),
+                   denials=kinds, spent=round(sum(x.get("cost", 0) for x in log), 3), cached=sum(x.get("cached", 0) for x in calls),
+                   started=ex[0]["ts"] if ex else None, done=any(e.get("event") == "done" for e in ex), now=time.time(),
+                   tasks={t["id"]: dict(q=t["question"], long=t["long"]) for t in W.ALL.values()})
+
+
 @app.get("/api/summary")
 def api_summary():
     log = _jl("routing.jsonl")
@@ -377,7 +446,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:6px 8px;b
 .lessoncard{border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-bottom:8px;background:#fff}
 </style></head><body>
 <header><div class="logo">Ground<span>hog</span></div><div class="sub">Self-improving computer-use agent for Azure · NVIDIA Nemotron · NeMo Switchyard</div>
-<nav><button class="on" data-v="live">Live demo</button><button data-v="how">How it works</button><button data-v="harness">Harness versions</button><button data-v="routing">Model routing</button><button data-v="brain">Knowledge</button></nav></header>
+<nav><button class="on" data-v="live">Live demo</button><button data-v="how">How it works</button><button data-v="harness">Harness versions</button><button data-v="routing">Model routing</button><button data-v="brain">Knowledge</button><button data-v="results">Results</button></nav></header>
 <div class="kpis">
 <div class="kpi hi"><div class="l">Harness version</div><div class="v" id="k-ver">v0</div><div class="d" id="k-ver-d"></div></div>
 <div class="kpi hi"><div class="l">Lessons learned</div><div class="v" id="k-les">0</div><div class="d" id="k-les-d"></div></div>
@@ -419,6 +488,20 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:6px 8px;b
 <div class="card pad"><h3>Which Nemotron models fill the tiers</h3><div id="r-tiers"></div><h3 style="margin-top:16px">Calls and cost per model</h3><div id="r-mix"></div></div></div>
 <div class="card pad" style="margin-top:14px"><h3>Adaptive router: published benchmark prior vs measured success</h3><div class="muted">Bars: grey = benchmark prior, green = belief after real outcomes. It moves with every 👍/👎.</div><div class="grid3" id="r-tables"></div></div></div>
 
+<div class="view" id="v-results">
+<div class="card pad"><h3>Experiment: does the team get better on Azure tasks it has never seen?</h3>
+<div class="muted" id="x-meta"></div>
+<div class="grid2" style="margin-top:10px"><div><b>Held-out success vs training tasks seen</b><svg id="x-curve" width="100%" height="230" viewBox="0 0 560 230"></svg>
+<div class="muted"><span style="color:#76b900">■</span> all held-out tasks <span style="color:#7c3aed">■</span> long-tail (&gt;20 steps) <span style="color:#0e9f6e">■</span> short</div></div>
+<div><b>Before vs after (held-out)</b><div id="x-head"></div></div></div></div>
+<div class="grid2" style="margin-top:14px"><div class="card pad"><h3>The harness grew: skills and specialist sub-agents</h3><div id="x-growth"></div></div>
+<div class="card pad"><h3>Knowledge accumulated (brain)</h3><svg id="x-brain" width="100%" height="110" viewBox="0 0 560 110"></svg><div id="x-brainstats"></div></div></div>
+<div class="grid2" style="margin-top:14px"><div class="card pad"><h3>Model routing (NeMo Switchyard + adaptive router)</h3><div id="x-models"></div></div>
+<div class="card pad"><h3>Safety and cost</h3><div id="x-safety"></div></div></div>
+<div class="card pad" style="margin-top:14px"><h3>Same held-out task: first evaluation vs latest</h3><div id="x-before"></div></div>
+<div class="grid2" style="margin-top:14px"><div class="card pad"><h3>What the improver created (verbatim)</h3><div id="x-edits"></div></div>
+<div class="card pad"><h3>From the brain</h3><div id="x-lessons"></div><h3 style="margin-top:12px">Training batches</h3><div id="x-train"></div></div></div>
+</div>
 <div class="view" id="v-brain"><div class="grid2"><div class="card pad"><h3>Lessons in the shared brain</h3><svg id="growth" width="100%" height="90" viewBox="0 0 600 90" preserveAspectRatio="none"></svg><div id="b-list"></div></div>
 <div class="card pad"><h3>Validations: what worked and what failed</h3><div id="b-val"></div></div></div></div>
 
@@ -487,6 +570,27 @@ async function refresh(){try{const S=await (await fetch('/api/summary')).json();
  if(v==='harness'){const H=await (await fetch('/api/harness')).json();$('#h-act').textContent=H.active;
   $('#h-tl').innerHTML=H.timeline.slice().reverse().map(t=>`<div class="ver"><div class="n">v${t.version}</div><div style="flex:1">${t.change?`<b>${esc(t.change.files.join(', '))}</b> <span class="badge b-g">${esc(t.change.reason||'')}</span><div>${esc(t.change.hypotheses.join('; '))}</div><details><summary>show diff</summary>${diffHtml(t.change.diff||'')}</details>`:'<span class="muted">starting harness</span>'}</div></div>`).join('');
   $('#h-files').innerHTML=Object.entries(H.files).map(([k,c])=>`<details><summary><b>${esc(k)}</b></summary><pre class="diff">${esc(c)}</pre></details>`).join('')}
+
+ if(v==='results'){const X=await (await fetch('/api/results')).json(),C=X.curve;
+  $('#x-meta').innerHTML=`20 real Azure portal tasks (8 long-tail) · held-out ${C[0]?C[0].n:8} tasks evaluated after every 4 training tasks · unattended, ${X.done?'finished':'running'} · ${X.started?Math.round((X.now-X.started)/60):0} min · $${X.spent}`;
+  const W=560,H=200,px=s=>40+s/12*(W-60),py=f=>H-10-f*(H-30);let g='<line x1="40" y1="190" x2="540" y2="190" stroke="#ccc"/><line x1="40" y1="20" x2="40" y2="190" stroke="#ccc"/>';
+  [0,4,8,12].forEach(s=>g+=`<text x="${px(s)-4}" y="205" font-size="11" fill="#666">${s}</text>`);[0,.5,1].forEach(f=>g+=`<text x="8" y="${py(f)+4}" font-size="11" fill="#666">${f*100}%</text>`);
+  g+='<text x="230" y="225" font-size="11" fill="#666">training tasks seen</text>';
+  const line=(k,n,c)=>{const pts=C.filter(p=>p[n]).map(p=>[px(p.seen),py(p[k]/p[n])]);if(!pts.length)return;g+=`<polyline fill="none" stroke="${c}" stroke-width="3" points="${pts.map(q=>q.join(',')).join(' ')}"/>`+pts.map(q=>`<circle cx="${q[0]}" cy="${q[1]}" r="4" fill="${c}"/>`).join('')};
+  line('solved','n','#76b900');line('long_solved','long_n','#7c3aed');line('short_solved','short_n','#0e9f6e');
+  C.forEach(p=>g+=`<text x="${px(p.seen)+6}" y="${py(p.solved/p.n)-8}" font-size="11" font-weight="700">${p.solved}/${p.n} · v${p.version}</text>`);$('#x-curve').innerHTML=g;
+  const a=C[0],b=C[C.length-1],row=(l,f)=>`<tr><td>${l}</td><td>${a?f(a):'-'}</td><td><b>${b?f(b):'-'}</b></td></tr>`;
+  $('#x-head').innerHTML=a?`<table><tr><th></th><th>first (0 seen, v${a.version})</th><th>latest (${b.seen} seen, v${b.version})</th></tr>`+row('held-out solved',p=>p.solved+' / '+p.n)+row('long-tail solved',p=>p.long_solved+' / '+p.long_n)+row('short solved',p=>p.short_solved+' / '+p.short_n)+row('screen actions per task',p=>p.steps)+row('actions per long-tail task',p=>p.long_steps)+row('$ per solved task',p=>p.cost_per_solved??'-')+row('tokens per task',p=>p.tokens)+'</table><div class="muted">n = '+a.n+' held-out tasks per point; small samples, differences of 1-2 tasks are suggestive.</div>':'<i>first evaluation running...</i>';
+  $('#x-growth').innerHTML='<table><tr><th>version</th><th>skills</th><th>sub-agents</th></tr>'+X.growth.map(g=>`<tr><td><b>v${g.version}</b></td><td>${g.skills.length} <span class="muted">${esc(g.skills.join(', '))}</span></td><td>${g.subagents.length} <span class="muted">${esc(g.specialists.join(', ')||'scout, analyst, verifier')}</span></td></tr>`).join('')+'</table>';
+  const ts=X.brain.created;let bg='';if(ts.length>1){const t0=ts[0],t1=ts[ts.length-1];bg=`<polyline fill="none" stroke="#76b900" stroke-width="3" points="${ts.map((t,i)=>((t-t0)/(t1-t0+1e-9)*530+15)+','+(100-(i+1)/ts.length*85)).join(' ')}"/>`}$('#x-brain').innerHTML=bg+`<text x="15" y="14" font-size="12" fill="#555">${ts.length} lessons over the run</text>`;
+  $('#x-brainstats').innerHTML=`<span class="badge b-g">${X.brain.active} active</span> <span class="badge b-g">${X.brain.trusted} trusted</span> <span class="badge b-r">${X.brain.quarantined} quarantined</span> <span class="badge">${X.brain.retired} retired</span>`;
+  const tot=X.models.reduce((s,m)=>s+m.calls,0)||1,nem=X.models.filter(m=>m.nemotron).reduce((s,m)=>s+m.calls,0);
+  $('#x-models').innerHTML=`<div><span class="badge b-g">${Math.round(nem/tot*100)}% of calls on Nemotron</span> <span class="badge b-e">Switchyard efficient ${X.switchyard.efficient}</span> <span class="badge b-p">capable ${X.switchyard.capable}</span> <span class="badge b-y">escalations ${X.escalations}</span> <span class="badge">fallbacks ${X.fallbacks}</span></div><table style="margin-top:8px">`+X.models.map(m=>`<tr><td>${mn(m.model)}</td><td style="width:45%">${bar(m.calls/tot,m.nemotron?'#76b900':'#94a3b8')}</td><td>${m.calls}</td><td>$${m.cost}</td></tr>`).join('')+'</table>';
+  $('#x-safety').innerHTML='<table>'+`<tr><td>Destructive / submitting clicks attempted unattended → denied</td><td><b>${X.denials['azure-guarded']||0}</b></td></tr><tr><td>Navigation outside Azure → denied</td><td><b>${X.denials['azure-egress']||0}</b></td></tr><tr><td>Password fields typed into</td><td><b>0</b> (${X.denials['azure-password-field']||0} attempts denied)</td></tr><tr><td>Improver reads of non-allowed files → denied</td><td><b>${X.denials['improver']||0}</b></td></tr><tr><td>Total cost (Crusoe)</td><td><b>$${X.spent}</b></td></tr><tr><td>Prompt tokens served from cache</td><td><b>${X.cached.toLocaleString()}</b></td></tr><tr><td>Human interventions during the run</td><td><b>0</b></td></tr></table>`;
+  if(a&&b){const before=Object.fromEntries(a.per_task.map(x=>[x.task,x]));$('#x-before').innerHTML='<table><tr><th>task</th><th>first</th><th>latest</th></tr>'+b.per_task.map(x=>{const y=before[x.task]||{},T=X.tasks[x.task]||{};const cell=(r,s)=>r?`${r.passed?'✅':'❌'} ${r.steps} actions${r.shot?`<br><a href="/shots/${r.shot}" target="_blank"><img src="/shots/${r.shot}" style="width:210px;border:1px solid #ddd;border-radius:6px"></a>`:''}`:'-';return `<tr><td style="max-width:330px">${T.long?'<span class="badge b-p">long-tail</span> ':''}${esc((T.q||x.task).slice(0,140))}</td><td>${cell(y)}</td><td>${cell(x)}</td></tr>`}).join('')+'</table>'}
+  $('#x-edits').innerHTML=X.edits.slice().reverse().map(e=>`<div class="lessoncard"><span class="badge b-g">v${e.version}</span> <b>${esc(e.files.join(', '))}</b><div>${esc(e.hypotheses.join('; '))}</div><div class="muted">${esc(e.reason||'')}</div><details><summary>diff</summary>${diffHtml(e.diff||'')}</details></div>`).join('')||'<i>edits appear after the first training batch</i>';
+  $('#x-lessons').innerHTML=X.brain.top.map(b=>`<div class="lessoncard">${b.trusted?'<span class="badge b-g">trusted</span> ':''}<span class="badge">${esc(b.type)}</span> ${esc(b.text)} <span class="muted">(+${b.helpful}/-${b.harmful})</span></div>`).join('')||'<i>lessons appear after the first training batch</i>';
+  $('#x-train').innerHTML='<table><tr><th>batch</th><th>harness</th><th>solved</th><th>tasks</th></tr>'+X.train.map(t=>`<tr><td>${t.batch}</td><td>v${t.version}</td><td>${t.solved}/${t.n}</td><td class="muted">${t.per_task.map(x=>(x.passed?'✅':'❌')+' '+x.task.replace('AZ-','')+' ('+x.steps+')').join(' · ')}</td></tr>`).join('')+'</table>'}
  if(v==='brain'){const B=await (await fetch('/api/brain')).json(),bs=B.bullets;
   const ts=bs.map(b=>b.created).sort();if(ts.length>1){const t0=ts[0],t1=ts[ts.length-1];$('#growth').innerHTML=`<polyline fill="none" stroke="#76b900" stroke-width="3" points="${ts.map((t,i)=>((t-t0)/(t1-t0)*580+10)+','+(85-(i+1)/ts.length*75)).join(' ')}"/><text x="10" y="14" font-size="12" fill="#5b6573">${ts.length} lessons over time</text>`}
   $('#b-list').innerHTML=bs.slice().reverse().map(b=>`<div class="lessoncard">${b.quarantined?'<span class="badge b-r">quarantined</span> ':''}${b.trusted?'<span class="badge b-g">trusted</span> ':''}${b.retired?'<span class="badge">retired</span> ':''}<span class="badge">${esc(b.type)}</span> <span class="muted">${esc(b.scope)}</span><div>${b.retired?'<s>':''}${esc(b.text)}</div><div class="muted">helped ${b.helpful} · hurt ${b.harmful}</div></div>`).join('');
