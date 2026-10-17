@@ -46,8 +46,9 @@ automatically. Measured outcomes then move picks (e.g. the scout moved after Nan
 
 | path | what | editable by improver |
 |---|---|---|
-| `groundhog/world.py` | GPUCo world: DB-A/DB-B, 16 templates, split by template (8 train / 4 val / 4 test), checker | no |
-| `groundhog/tools.py` | read-only `sql` (200 rows, 5 s), `schema`, `sample`, `python` (no key in env, deny-list) | no |
+| `groundhog/world.py` | GPUCo world: DB-A/DB-B, 16 templates each with reference SQL (verified equal to the exact gold answer on both DBs), split by template (8 train / 4 val / 4 test), checker with numeric tolerance, security tasks | no |
+| `groundhog/tools.py` | read-only `sql` (200 rows, 5 s, ATTACH blocked), `schema`, `sample`, `python` in a Docker sandbox (`--network none`, read-only, no host mounts, no secrets) | no |
+| `groundhog/attacks.py` | attack 1 (memory poisoning: naive vs curated memory) and attack 2 (red-teamed improver + weakened candidate vs the security gate) | no |
 | `groundhog/agent.py` | LangChain **Deep Agents** (`create_deep_agent`): lead → built-in `task` tool → `scout` / `analyst-<job>` / `verifier-<job>` sub-agents → `submit` (rejected unless a verifier agrees). Skills via Deep Agents skills; BRAIN.md appended last in every agent's system prompt (stable prefix for prompt caching); built-in general-purpose sub-agent disabled; middleware adds step cap, repeated-call guard, token budget, fallback, escalation, cost log, trace | no |
 | `groundhog/brain.py` | ACE-style brain: reflector ops (with cited trace steps), single curator fed from a queue, rapidfuzz dedup ≥85, contradictions resolved by scope then counters, quarantine of tenant-derived instructions/URLs, retire at harmful ≥ helpful+2, trust after a later passing task, ~1.5k-token cap | no |
 | `groundhog/evolve.py` | N+1 loop; improver = read-only Deep Agent (may read `harness/`, training traces, archive, router stats; answers/checker/val/test denied and logged); leak filter, gate, archive, git commit, 2×2/transfer eval | no |
@@ -68,6 +69,10 @@ echo "LLM_API_KEY=..." > .env                      # Crusoe key
 .venv/bin/python -m pytest -q tests                 # self-checks (no API calls except none)
 .venv/bin/python -m groundhog.evolve evolve --gens 3 --budget-usd 5   # unattended loop (resumable state in runs/)
 .venv/bin/python -m groundhog.evolve table          # 2x2 (v0/best x brain off/on) on test + DB-B transfer
+.venv/bin/python -m groundhog.evolve attack-memory  # attack 1
+.venv/bin/python -m groundhog.evolve attack-improver  # attack 2
+.venv/bin/python -m groundhog.evolve intervene --note "fixed X"   # count a human touch
+# add --limit N to any command for a small run (N tasks per split, one per template where possible)
 .venv/bin/streamlit run groundhog/dashboard.py
 ```
 
@@ -79,9 +84,15 @@ See [RESULTS.md](RESULTS.md) (only measured numbers, with sample sizes).
 
 - Only the data is synthetic. All model calls are real Crusoe calls.
 - The team runs on the real `deepagents` package (0.7.28) with `langchain-openai` pointed at Crusoe.
+- **Walk-away reliability:** finished tasks, improver edits and the generation counter live in `runs/state.db`, so a
+  crashed or killed loop resumes where it stopped (restarts are logged as interventions); 429/503 retries with
+  exponential backoff + jitter, per-model concurrency limits, a per-task wall-clock timeout, and a budget cap checked
+  before every task that stops the loop cleanly.
 - **Fallbacks used** (as allowed by the plan): Python router mirroring Switchyard's `auto` route instead of `switchyard-server`
-  ([routes.toml](routes.toml) is ready for it); OpenShell policy is a draft ([sandbox/policy.yaml](sandbox/policy.yaml)) and
-  the `python` tool's deny-list stands in for it outside the sandbox — denials are logged to `runs/denials.jsonl`.
+  ([routes.toml](routes.toml) is ready for it); Docker sandbox instead of OpenShell for agent code
+  ([sandbox/policy.yaml](sandbox/policy.yaml) lists what is enforced now and the OpenShell target, not yet validated);
+  denials go to `runs/denials.jsonl` (the dashboard's denial feed) instead of OpenShell's audit log.
+- Model choice per role lives in `routing.yaml` (benchmark weights + optional `pins`), not in `subagents.yaml`.
 - Contradiction resolution in the curator is by dedup + counters only (no scope-aware contradiction detection).
 
 Credits: Deep Agents, ACE, Meta-Harness, Harness², RRSI, Darwin Gödel Machine, Switchyard, OpenShell, NemoClaw, Nemotron.

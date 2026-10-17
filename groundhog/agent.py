@@ -112,6 +112,19 @@ class GroundhogMiddleware(AgentMiddleware):
         self.st["trace"].append(dict(step=len(self.st["trace"]), t=round(time.time() - self.st["t0"], 1),
                                      role=self.role, model=self.model_id, **e))
 
+    def before_agent(self, state, runtime):
+        """Each delegation is a fresh invocation of the sub-agent graph: its step cap and repeat detector restart."""
+        self.steps, self.errors, self.repeats, self.seen = 0, 0, 0, {}
+        if self.role == "verifier" and self.team.h["routing"].get("verifier_other_family"):
+            # verify against the analysts that actually ran in this task, whichever job the lead delegated to
+            fams = {Router.family(m) for m in self.st.get("analyst_models", ())}
+            if len(fams) == 1 and Router.family(self.model_id) in fams:
+                self.avoid = fams.pop()
+                new = self.team.router.pick(self.role, self.job, avoid_family=self.avoid)
+                self._ev(kind="reroute", text=f"{self.model_id} -> {new}: same family as this task's analyst")
+                self.model_id = new
+        return None
+
     def wrap_model_call(self, request, handler):
         st, cfg = self.st, self.team.h["routing"]
         self.steps += 1
@@ -143,6 +156,8 @@ class GroundhogMiddleware(AgentMiddleware):
             self.model_id = fb
             resp = handler(request.override(model=chat_model(fb)))
         st["models"][self.role], st["jobs"][self.role] = self.model_id, self.job
+        if self.role == "analyst":
+            st.setdefault("analyst_models", set()).add(self.model_id)
         msg = next((m for m in resp.result if isinstance(m, AIMessage)), None)
         if msg is not None:
             u = msg.usage_metadata or {}
