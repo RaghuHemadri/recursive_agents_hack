@@ -10,6 +10,7 @@ fallback          = a model that returns 429/503 after retries is cooled down fo
 Weights, cost weights, pins and escalation thresholds live in harness/vN/routing.yaml, so the improver can edit them.
 """
 import json
+import os
 import math
 import threading
 import time
@@ -20,7 +21,7 @@ import yaml
 ROOT = Path(__file__).resolve().parent.parent
 BENCH = yaml.safe_load((ROOT / "frozen" / "benchmarks.yaml").read_text())["models"]
 from .config import HARNESS, RUNS  # noqa: E402
-STATS = RUNS / "router_stats.json"
+STATS = Path(os.environ.get("GROUNDHOG_ROUTER_STATS", str(RUNS / "router_stats.json")))
 _lock = threading.Lock()
 _cooldown: dict[str, float] = {}
 

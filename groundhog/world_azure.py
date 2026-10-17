@@ -22,7 +22,7 @@ ALLOWED_FAMILIES = {"nemotron", "qwen", "google", "openai"}  # Nemotron is the d
 IMAGE_ROLES = {"scout", "analyst", "verifier"}
 POOL_SIZE = int(os.environ.get("GROUNDHOG_BROWSERS", "0"))  # >0: parallel headless browsers sharing the human's sign-in
 WORKERS = max(1, POOL_SIZE)
-STEP_CAP, TASK_TIMEOUT_S = 30, 420
+STEP_CAP, TASK_TIMEOUT_S = 30, 540
 GUARDRAILS_FILE = "guardrails_azure.md"
 HOME = "https://portal.azure.com/#home"
 PROFILE, SCREENS, SHOTS, AUTH = RUNS / "browser_profile", RUNS / "screens", RUNS / "shots", RUNS / "auth_state.json"
@@ -32,8 +32,11 @@ ALLOWED_URL = re.compile(r"^https://([a-z0-9-]+\.)*(azure\.com|azure\.net|micros
 DESTRUCTIVE = re.compile(r"\b(delete|remove|purchase|buy|pay|upgrade|deallocate|terminate|revoke|regenerate|reset|"
                          r"disable|stop|restart|cancel subscription)\b", re.I)
 SUBMIT_ANYWHERE = re.compile(r"^\s*(save|assign|review \+ assign|deploy|submit|confirm|yes|ok)\s*$", re.I)
-SUBMIT_ON_FORM = re.compile(r"^\s*create\s*$", re.I)  # "Review + create" only validates; "Create" submits
-FORM_URL = re.compile(r"#create/|create", re.I)   # creation wizards: old (#create/...) and React (...Create.ReactView)
+SUBMIT_ON_FORM = re.compile(r"^\s*create\s*$", re.I)
+FORM_FILL = re.compile(r"^\s*(ok|apply|add|save|yes)\s*$", re.I)  # "Review + create" only validates; "Create" submits
+# creation wizard blades: old (#create/Microsoft.X) and React/V3 (ResourceGroupCreate.ReactView, AppServiceWebAppCreateV3Blade);
+# list pages (#browse, #servicemenu) are not wizards: their "+ Create" only opens the form
+FORM_URL = re.compile(r"#create/|[a-z]Create|Create(?:[A-Z.]|V\d)")
 CONFIRM_DIALOG = re.compile(r"type the .{0,40} name|to confirm deletion|are you sure you want to", re.I)
 
 SOM_JS = """() => {
@@ -282,8 +285,11 @@ def make_tools(task: dict, st: dict, role: str, human=None) -> list:
         if err:
             return err
         url = (B.obs or {}).get("url", "")
-        need = bool(DESTRUCTIVE.search(e["label"]) or SUBMIT_ANYWHERE.match(e["label"])
-                    or (bool(FORM_URL.search(url)) and SUBMIT_ON_FORM.match(e["label"])))
+        in_wizard = bool(FORM_URL.search(url))
+        # inside a creation wizard, OK / Apply / Add / Save only fill the form (e.g. naming a new resource group); nothing
+        # is created until the wizard's final Create button, which stays guarded
+        need = bool(DESTRUCTIVE.search(e["label"]) or (SUBMIT_ANYWHERE.match(e["label"]) and not
+                    (in_wizard and FORM_FILL.match(e["label"]))) or (in_wizard and SUBMIT_ON_FORM.match(e["label"])))
         if denied := _guard("click", e["label"], url, human, st, need):
             return denied
 
