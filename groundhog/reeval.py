@@ -13,12 +13,13 @@ import sqlite3
 import sys
 import time
 
-seen = int(sys.argv[1])
+curated = sys.argv[1] == "curated"   # harness v9 (human-curated from v1-v8) + pruned brain, after 10 tasks
+seen = 10 if curated else int(sys.argv[1])
 from groundhog.config import RUNS  # noqa: E402
 
 RE = RUNS / "reeval"
 RE.mkdir(exist_ok=True)
-os.environ["GROUNDHOG_ROUTER_STATS"] = str(RE / f"stats_after{seen}.json")
+os.environ["GROUNDHOG_ROUTER_STATS"] = str(RE / f"stats_after{seen}{'c' if curated else ''}.json")
 os.environ.setdefault("GROUNDHOG_BROWSERS", "4")
 
 from groundhog.brain import Brain  # noqa: E402
@@ -45,18 +46,21 @@ for tag, res in db.execute("SELECT tag, res FROM results"):
             job = r["jobs"].get(role)
             s, n = stats.setdefault(job, {}).get(m, [0, 0])
             stats[job][m] = [s + int(r["answer"] is not None), n + 1]
-(RE / f"stats_after{seen}.json").write_text(json.dumps(stats, indent=1))
+(RE / f"stats_after{seen}{'c' if curated else ''}.json").write_text(json.dumps(stats, indent=1))
+if curated:
+    version = 9
 
 # brain snapshot: lessons that existed at this point
-snap = RE / f"brain_after{seen}.db"
+snap = RE / f"brain_after{seen}{'c' if curated else ''}.db"
 shutil.copy(RUNS / "brain.db", snap)
-with sqlite3.connect(snap) as b:
-    b.execute("DELETE FROM bullets WHERE created > ?", (cutoff,))
+if not curated:
+    with sqlite3.connect(snap) as b:
+        b.execute("DELETE FROM bullets WHERE created > ?", (cutoff,))
 brain = Brain(snap)
 
 t0 = time.time()
-out = evaluate(HARNESS / f"v{version}", W.load_tasks("heldout"), f"reheldout-after{seen}", brain, False, 4, LLM())
-_log("experiment.jsonl", dict(ts=time.time(), event="heldout", rerun=True, seen=seen, version=version, inventory=inventory(version),
+out = evaluate(HARNESS / f"v{version}", W.load_tasks("heldout"), f"reheldout-after{seen}{'-curated' if curated else ''}", brain, False, 4, LLM())
+_log("experiment.jsonl", dict(ts=time.time(), event="heldout", rerun=True, curated=curated, seen=seen, version=version, inventory=inventory(version),
                               brain_lessons=len(brain.bullets()), summary=out["summary"], per_task=[row(x) for x in out["results"]],
                               minutes=round((time.time() - t0) / 60, 1)))
 print(f"after{seen}: v{version}, {len(brain.bullets())} lessons -> {out['summary']['solved']}/{out['summary']['n']}")
