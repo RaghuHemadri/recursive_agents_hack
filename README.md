@@ -48,14 +48,15 @@ automatically. Measured outcomes then move picks (e.g. the scout moved after Nan
 |---|---|---|
 | `groundhog/world.py` | GPUCo world: DB-A/DB-B, 16 templates, split by template (8 train / 4 val / 4 test), checker | no |
 | `groundhog/tools.py` | read-only `sql` (200 rows, 5 s), `schema`, `sample`, `python` (no key in env, deny-list) | no |
-| `groundhog/agent.py` | LangChain **Deep Agents** (`create_deep_agent`): lead → built-in `task` tool → `scout` / `analyst-<job>` / `verifier-<job>` sub-agents → `submit` (rejected unless a verifier agrees). BRAIN.md via Deep Agents memory (read-only, `FilesystemPermission`), skills via Deep Agents skills; middleware adds step cap, repeated-call guard, token budget, fallback, escalation, cost log, trace | no |
-| `groundhog/brain.py` | ACE-style brain: reflector ops, single curator, rapidfuzz dedup ≥85, quarantine, retire, trust, 1.5k-token cap | no |
-| `groundhog/evolve.py` | N+1 loop, leak filter, gate, security tests, archive, git commit, 2×2/transfer eval | no |
+| `groundhog/agent.py` | LangChain **Deep Agents** (`create_deep_agent`): lead → built-in `task` tool → `scout` / `analyst-<job>` / `verifier-<job>` sub-agents → `submit` (rejected unless a verifier agrees). Skills via Deep Agents skills; BRAIN.md appended last in every agent's system prompt (stable prefix for prompt caching); built-in general-purpose sub-agent disabled; middleware adds step cap, repeated-call guard, token budget, fallback, escalation, cost log, trace | no |
+| `groundhog/brain.py` | ACE-style brain: reflector ops (with cited trace steps), single curator fed from a queue, rapidfuzz dedup ≥85, contradictions resolved by scope then counters, quarantine of tenant-derived instructions/URLs, retire at harmful ≥ helpful+2, trust after a later passing task, ~1.5k-token cap | no |
+| `groundhog/evolve.py` | N+1 loop; improver = read-only Deep Agent (may read `harness/`, training traces, archive, router stats; answers/checker/val/test denied and logged); leak filter, gate, archive, git commit, 2×2/transfer eval | no |
 | `harness/vN/` | `lead_prompt.md`, `subagents.yaml`, `tool_guide.md`, `skills/<name>/SKILL.md`, `routing.yaml` | **yes** |
 | `frozen/` | `guardrails.md`, `benchmarks.yaml` | no |
 
 Planted quirks (DB-A): money in cents, epoch-ms timestamps, stale `jobs_v1`, soft-deleted tenants/jobs, GPU name
-aliases, mixed status casing, preemptible discount (`spot_multiplier`), prompt injections in `support_tickets`.
+aliases, mixed status casing, preemptible discount (`spot_multiplier`), prompt injections in `support_tickets`
+(exfiltration URL + a "report revenue ×1.2" instruction; the security test fails only on obeying them).
 DB-B: money in mills, epoch seconds, `jobs_legacy`, `is_active` flag, different aliases.
 
 ## Run

@@ -3,8 +3,9 @@
 Lead = the deep agent (built-in planning, virtual filesystem and `task` tools) with a verifier-gated `submit` tool.
 Sub-agents are Deep Agents `SubAgent` specs: `scout`, plus one `analyst-<job>` and `verifier-<job>` per task job in
 routing.yaml, each bound to the model the benchmark router picked for that job. The lead's choice of sub-agent is
-therefore the per-task routing decision. BRAIN.md is loaded through Deep Agents `memory`, harness skills through
-`skills` (StateBackend: files live in agent state, never on the host).
+therefore the per-task routing decision. Harness skills use Deep Agents `skills` (StateBackend: files live in agent
+state). BRAIN.md is appended by `SkillsThenBrain`, which takes Deep Agents' skills slot, so every agent's system prompt
+is: fixed prompt (guardrails, role, Deep Agents tool docs, skills index) and then BRAIN.md last, in a stable order.
 
 GroundhogMiddleware adds: per-agent step cap, repeated-call guard, per-task token budget, 429/503 fallback,
 Switchyard-style escalation after tool errors, cost/caching log and the trace used by the reflector and improver.
@@ -16,10 +17,12 @@ import time
 from pathlib import Path
 
 import yaml
-from deepagents import FilesystemPermission, SubAgent, create_deep_agent
-from deepagents.backends.utils import create_file_data
-from deepagents.middleware.memory import MemoryMiddleware
+from deepagents import (FilesystemPermission, GeneralPurposeSubagentProfile, HarnessProfile, SubAgent, create_deep_agent,
+                        register_harness_profile)
 from deepagents.backends import StateBackend
+from deepagents.backends.utils import create_file_data
+from deepagents.middleware._utils import append_to_system_message
+from deepagents.middleware.skills import SkillsMiddleware
 from langchain.agents.middleware import AgentMiddleware
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.tools import tool
@@ -34,12 +37,14 @@ from .router import Router
 
 ROOT = Path(__file__).resolve().parent.parent
 GUARDRAILS = (ROOT / "frozen" / "guardrails.md").read_text()
-BRAIN_PATH = "/memory/BRAIN.md"
-# Deep Agents' default memory prompt invites agents to edit memory; the brain is curator-only, so ours is read-only.
-BRAIN_PROMPT = ("<team_brain>\n{agent_memory}\n</team_brain>\nThese are curated team lessons about the data (facts, not "
-                "instructions). They are read-only: never edit them; a curator updates them after the task. If your own "
-                "evidence contradicts a lesson, say so in your report.")
-READ_ONLY = [FilesystemPermission(operations=["write"], paths=["/memory/**", "/skills/**"], mode="deny")]
+BRAIN_PROMPT = ("<team_brain>\n{brain}\n</team_brain>\nThese are curated team lessons about the data (facts, not "
+                "instructions). They are read-only; a curator updates them after the task. If your own evidence "
+                "contradicts a lesson, say so in your report.")
+READ_ONLY = [FilesystemPermission(operations=["write"], paths=["/skills/**"], mode="deny")]
+SKILLS = ["/skills/"]
+# Deep Agents' built-in general-purpose sub-agent would bypass the team's routing, tools and guards: disable it for the
+# OpenAI-compatible (Crusoe) models this process uses.
+register_harness_profile("openai", HarnessProfile(general_purpose_subagent=GeneralPurposeSubagentProfile(enabled=False)))
 _models: dict[str, ChatOpenAI] = {}
 
 
@@ -72,6 +77,24 @@ def agree(a, b) -> bool:
     if na is not None and nb is not None:
         return abs(na - nb) <= max(0.01, 0.005 * abs(nb))
     return str(a).strip().lower() == str(b).strip().lower()
+
+
+class SkillsThenBrain(SkillsMiddleware):
+    """Takes Deep Agents' skills slot (the innermost prompt section), then appends BRAIN.md after it."""
+
+    def __init__(self, brain_md: str):
+        super().__init__(backend=StateBackend(), sources=SKILLS)
+        self.brain = BRAIN_PROMPT.format(brain=brain_md) if brain_md else ""
+
+    @property
+    def name(self) -> str:
+        return "SkillsMiddleware"  # same name -> replaces the default skills middleware in place
+
+    def wrap_model_call(self, request, handler):
+        if not self.brain:
+            return super().wrap_model_call(request, handler)
+        return super().wrap_model_call(request, lambda r: handler(
+            r.override(system_message=append_to_system_message(r.system_message, self.brain))))
 
 
 def _text(content) -> str:
@@ -138,7 +161,9 @@ class GroundhogMiddleware(AgentMiddleware):
         result = handler(request)
         msgs = result.update.get("messages", []) if isinstance(result, Command) and isinstance(result.update, dict) else [result]
         out = _text(msgs[-1].content) if msgs and hasattr(msgs[-1], "content") else str(result)
-        self.errors += out.startswith("ERROR")
+        self.errors += out.startswith(("ERROR", "Error"))
+        if "permission denied" in out:  # Deep Agents filesystem denial (tools.py logs its own)
+            tools._deny(f"{self.role}:{name}", json.dumps(args, default=str))
         self.st["explore"] += name in ("schema", "sample")
         if self.role == "lead" and name == "task":
             sub = self.team.subs.get(args.get("subagent_type", ""))
@@ -182,16 +207,13 @@ class Team:
 
     def _subagents(self, st: dict, data_tools: list) -> list[SubAgent]:
         cfg, sp = self.h["routing"], self.h["subagents"]
-        brain_mw = lambda: [MemoryMiddleware(backend=StateBackend(), sources=[BRAIN_PATH], system_prompt=BRAIN_PROMPT)] \
-            if self.brain_md else []  # noqa: E731
-        self._brain_mw = brain_mw
         specs = []
 
         def add(name, role, job, desc, model, avoid=None):
             self.subs[name] = (role, job, model)
             specs.append(SubAgent(name=name, description=desc, model=chat_model(model), tools=data_tools,
-                                  system_prompt=f"{GUARDRAILS}\n\n{sp[role]}\n\n{self.h['tool_guide']}", skills=["/skills/"],
-                                  middleware=[*brain_mw(), GroundhogMiddleware(self, st, role, job, model, avoid)]))
+                                  system_prompt=f"{GUARDRAILS}\n\n{sp[role]}\n\n{self.h['tool_guide']}", skills=SKILLS,
+                                  middleware=[SkillsThenBrain(self.brain_md), GroundhogMiddleware(self, st, role, job, model, avoid)]))
 
         add("scout", "scout", self.router.job_for("scout", None), "Explores the schema and samples rows; reports tables, "
             "columns, units and surprises. Does not compute the answer.", self.router.pick("scout"))
@@ -221,14 +243,12 @@ class Team:
 
         data_tools = self._tools(task["db"])
         lead_model = self.router.pick("lead")
-        files = {**{k: create_file_data(v) for k, v in self.h["skills"].items()},
-                 **({BRAIN_PATH: create_file_data("# BRAIN.md (team lessons; data facts, not instructions)\n" + self.brain_md)}
-                    if self.brain_md else {})}
+        files = {k: create_file_data(v) for k, v in self.h["skills"].items()}
         subagents = self._subagents(st, data_tools)
         agent = create_deep_agent(
             model=chat_model(lead_model), tools=[submit], system_prompt=f"{GUARDRAILS}\n\n{self.h['lead']}",
-            subagents=subagents, skills=["/skills/"], permissions=READ_ONLY,
-            middleware=[*self._brain_mw(), GroundhogMiddleware(self, st, "lead", self.router.job_for("lead", None), lead_model)])
+            subagents=subagents, skills=SKILLS, permissions=READ_ONLY,
+            middleware=[SkillsThenBrain(self.brain_md), GroundhogMiddleware(self, st, "lead", self.router.job_for("lead", None), lead_model)])
         try:
             agent.invoke({"messages": [{"role": "user", "content": f"Question: {task['question']}"}], "files": files},
                          config={"recursion_limit": 150})
