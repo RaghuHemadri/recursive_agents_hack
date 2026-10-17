@@ -387,10 +387,19 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:6px 8px;b
 .arr{text-align:center;font-size:26px;color:#9aa4b1}.stack{display:flex;flex-direction:column;gap:8px}.stack .node{min-height:0;padding:8px}
 .loop{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:18px}.loop .node{min-height:120px}
 .ver{display:flex;gap:12px;align-items:flex-start;padding:12px 0;border-bottom:1px solid var(--line)}.ver .n{font-size:20px;font-weight:800;min-width:54px;color:#3d7a00}
+.arch{display:grid;grid-template-columns:150px 1fr 1.25fr 170px;grid-template-rows:auto auto auto auto;gap:12px 18px;position:relative}
+.an{background:#fff;border:2px solid var(--line);border-radius:14px;padding:10px 12px;transition:box-shadow .2s,border-color .2s,transform .2s;position:relative}
+.an b{display:block;font-size:15px}.an .m{font-size:12px;color:var(--mut);margin-top:3px}.an .c{font-size:12px;margin-top:6px;font-weight:600;color:#3d7a00}
+.an.you{border-color:#93c5fd}.an.team{border-color:var(--g)}.an.world{border-color:#9aa4b1}.an.route{border-color:var(--cap)}.an.learn{border-color:#f59e0b}.an.lock{border-color:#0b0f14;background:#0b0f14;color:#fff}.an.lock .m{color:#aeb6c1}
+.teambox{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:8px}.teambox .an{padding:7px 9px}.teambox .an b{font-size:13.5px}
+.lbl{font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--mut);font-weight:700;margin-bottom:4px}
+.an.pulse{box-shadow:0 0 0 4px rgba(118,185,0,.45);transform:translateY(-2px)}.an.lock.pulse{box-shadow:0 0 0 4px rgba(239,68,68,.55)}
+.archnow{margin-top:14px;padding:10px 14px;border-radius:10px;background:#0b0f14;color:#e6edf3;font:13px/1.4 ui-monospace,Menlo,monospace;min-height:40px}
+.arrow{font-size:12px;color:var(--mut);align-self:center;text-align:center}
 .lessoncard{border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-bottom:8px;background:#fff}
 </style></head><body>
 <header><div class="logo">Ground<span>hog</span></div><div class="sub">Self-improving computer-use agent for Azure · NVIDIA Nemotron · NeMo Switchyard</div>
-<nav><button class="on" data-v="live">Live demo</button><button data-v="how">How it works</button><button data-v="harness">Harness versions</button><button data-v="routing">Model routing</button><button data-v="brain">Knowledge</button></nav></header>
+<nav><button class="on" data-v="arch">Architecture</button><button data-v="live">Live demo</button><button data-v="how">How it works</button><button data-v="harness">Harness versions</button><button data-v="routing">Model routing</button><button data-v="brain">Knowledge</button></nav></header>
 <div class="kpis">
 <div class="kpi hi"><div class="l">Harness version</div><div class="v" id="k-ver">v0</div><div class="d" id="k-ver-d"></div></div>
 <div class="kpi hi"><div class="l">Lessons learned</div><div class="v" id="k-les">0</div><div class="d" id="k-les-d"></div></div>
@@ -399,7 +408,23 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:6px 8px;b
 <div class="kpi"><div class="l">Validations</div><div class="v"><span id="k-ok" style="color:#047857">0</span> / <span id="k-bad" style="color:#b91c1c">0</span></div><div class="d">worked / failed</div></div>
 <div class="kpi"><div class="l">Cost so far</div><div class="v" id="k-cost">$0</div><div class="d">Crusoe inference</div></div></div>
 
-<div class="view on" id="v-live"><div class="live">
+<div class="view on" id="v-arch"><div class="card pad">
+<div class="arch">
+ <div class="an you" id="a-you" style="grid-column:1;grid-row:1/3"><b>You</b><div class="m">give a task in plain text<br>steer any time<br>approve risky clicks<br>say if it worked</div></div>
+ <div style="grid-column:2/4;grid-row:1"><div class="an team" id="a-lead"><b>Lead agent</b><div class="m">writes a definition of done, delegates, may only submit after a verifier agrees (LangChain Deep Agents)</div>
+   <div class="teambox"><div class="an team" id="a-scout"><b>Scout</b><div class="m">finds where things are</div></div><div class="an team" id="a-analyst"><b>Analyst</b><div class="m">clicks / types by numbered marks</div></div><div class="an team" id="a-verifier"><b>Verifier</b><div class="m">checks the screen, different model</div></div></div></div></div>
+ <div class="an world" id="a-world" style="grid-column:4;grid-row:1/3"><b>Azure portal</b><div class="m">real browser · screenshot with a number on every clickable element · agents act by number</div></div>
+ <div class="an route" id="a-sy" style="grid-column:2;grid-row:2"><b>NeMo Switchyard</b><div class="m">every prompt: clean progress → efficient tier; errors or loops → capable tier</div><div class="c" id="a-sy-c"></div></div>
+ <div class="an route" id="a-models" style="grid-column:3;grid-row:2"><b>Nemotron on Crusoe</b><div class="m">a benchmark router picks which Nemotron model fills each tier per role, and learns from pass/fail</div><div class="c" id="a-models-c"></div></div>
+ <div class="lbl" style="grid-column:1/5;grid-row:3;margin-top:6px">After every task and every correction</div>
+ <div class="an learn" id="a-reflector" style="grid-column:1;grid-row:4"><b>Reflector</b><div class="m">turns the trace and your words into lessons</div></div>
+ <div class="an learn" id="a-brain" style="grid-column:2;grid-row:4"><b>Brain</b><div class="m">curator files typed lessons with source, helped/hurt counts, trust; quarantines instructions from page text. Every agent reads it.</div><div class="c" id="a-brain-c"></div></div>
+ <div class="an learn" id="a-improver" style="grid-column:3;grid-row:4"><b>Improver → Harness vN</b><div class="m">rewrites the team's own prompts, sub-agent prompts, skills, routing. Each change = new version + git commit.</div><div class="c" id="a-harness-c"></div></div>
+ <div class="an lock" id="a-lock" style="grid-column:4;grid-row:4"><b>Locked</b><div class="m">guardrails · tool guard · checker &amp; gate · leak filter · unseen tasks. The improver cannot edit these.</div></div>
+</div>
+<div class="archnow" id="archnow">Waiting for activity… start a task in Live demo, then come back here.</div>
+</div></div>
+<div class="view" id="v-live"><div class="live">
 <div class="card"><h2>Conversation <span class="status" id="status"><span class="dot" id="dot"></span> idle</span></h2><div class="scroll" id="chat"></div>
 <div id="askbox"></div>
 <div class="compose"><input id="inp" placeholder="Ask for an Azure task, or steer it while it works..." autocomplete="off"><button id="send">Send</button></div>
@@ -476,8 +501,18 @@ function render(e){
  if(e.kind==='final'||e.kind==='think'){let t=String(e.text||'').replace(/\*\*/g,'').trim();if(!t)return;add(chat,who+esc(t.length>420?t.slice(0,420)+'…':t),'msg ag')}}
 function diffHtml(d){return '<pre class="diff">'+esc(d).split('\n').map(l=>l.startsWith('+')&&!l.startsWith('+++')?'<span class="a">'+l+'</span>':l.startsWith('-')&&!l.startsWith('---')?'<span class="d">'+l+'</span>':l).join('\n')+'</pre>'}
 let lastAsk=null;
+function pulse(ids,t){ids.forEach(i=>{const n=document.getElementById('a-'+i);if(!n)return;n.classList.add('pulse');clearTimeout(n._t);n._t=setTimeout(()=>n.classList.remove('pulse'),1600)});if(t)$('#archnow').textContent=t}
+function arch(e){const r=e.role,k=e.kind;
+ if(r==='human'){pulse(['you'],'You: '+first(e.text).slice(0,140));return}
+ if(k==='route'){pulse(['sy','models'],'Switchyard → '+first(e.text).slice(0,140));return}
+ if(k==='lesson'||k==='learned'){pulse(['reflector','brain'],'Brain: '+(e.title||'')+' '+first(e.text).slice(0,110));return}
+ if(k==='quarantine'){pulse(['brain','lock'],'Quarantined: '+first(e.text).slice(0,120));return}
+ if(k==='harness'||k==='thinking'){pulse(['improver'],(e.title||'Improver')+(e.version?' (v'+e.version+')':''));return}
+ if(k==='guard'||(e.result&&/DENIED|REJECTED/.test(e.result))){pulse(['lock',r],first(e.result||e.text).slice(0,150));return}
+ if(k==='escalate'||k==='reroute'||k==='fallback'){pulse(['sy','models',r],first(e.text).slice(0,150));return}
+ if(['lead','scout','analyst','verifier'].includes(r)){const ids=[r];if(k==='tool'&&e.tool&&e.tool!=='task'&&e.tool!=='submit')ids.push('world');pulse(ids,(ROLE[r]||r)+(e.tool?' · '+e.tool+' '+JSON.stringify(e.args||{}).slice(0,70):'')+(e.model?'  ['+mn(e.model)+']':''))}}
 async function poll(){try{const d=await (await fetch('/events?after='+after)).json();
- for(const e of d.events){after=e.n;render(e);if(e.role!=='system'&&e.role!=='human'&&e.kind!=='question')$('#now').innerHTML=`<b>${esc(ROLE[e.role]||e.role)}</b>&nbsp;${esc(mn(e.model))}${e.tool?' · '+esc(e.tool):''}`}
+ for(const e of d.events){after=e.n;render(e);try{arch(e)}catch(_){}if(e.role!=='system'&&e.role!=='human'&&e.kind!=='question')$('#now').innerHTML=`<b>${esc(ROLE[e.role]||e.role)}</b>&nbsp;${esc(mn(e.model))}${e.tool?' · '+esc(e.tool):''}`}
  $('#steps').textContent=d.steps+' steps';$('#dot').className='dot'+(d.busy||d.adapting?' busy':'');
  $('#status').lastChild.textContent=d.waiting?' waiting for you':d.adapting?' improving harness':d.busy?' working':' idle';
  const key=d.waiting_kind+'|'+d.waiting;if(key!==lastAsk){lastAsk=key;const box=$('#askbox');box.innerHTML='';
@@ -490,6 +525,7 @@ async function refresh(){try{const S=await (await fetch('/api/summary')).json();
  $('#k-ver').textContent='v'+S.version;$('#k-ver-d').textContent=S.versions_learned+' version(s) learned';$('#k-les').textContent=S.lessons;
  $('#k-les-d').textContent=S.trusted+' trusted · '+S.quarantined+' quarantined';$('#k-eff').textContent=S.efficient;$('#k-cap').textContent=S.capable;
  $('#k-mod').textContent=S.models.length;$('#k-mod-d').title=S.models.map(mn).join(', ');$('#k-ok').textContent=S.validations_ok;$('#k-bad').textContent=S.validations_bad;$('#k-cost').textContent='$'+S.spent;
+ if($('#a-brain-c')){$('#a-brain-c').textContent=S.lessons+' lessons · '+S.trusted+' trusted · '+S.quarantined+' quarantined';$('#a-harness-c').textContent='now at v'+S.version+' · '+S.versions_learned+' learned';$('#a-sy-c').textContent=S.efficient+' efficient · '+S.capable+' capable so far';$('#a-models-c').textContent=S.models.length+' Nemotron models · $'+S.spent}
  const v=document.querySelector('nav button.on').dataset.v;
  if(v==='how'||v==='routing'){const R=await (await fetch('/api/routing')).json(),T=R.tiers,tp=k=>T[k]?`<span class="badge b-p">capable</span> ${mn(T[k][0])}<br><span class="badge b-e">efficient</span> ${mn(T[k][1])}`:'';
   if(v==='how'){$('#f-lead').innerHTML=tp('lead:');$('#f-scout').innerHTML=tp('scout:');$('#f-analyst').innerHTML=tp('analyst:web_navigation');$('#f-sy').innerHTML=`<b>${S.efficient}</b> efficient · <b>${S.capable}</b> capable so far`;$('#f-brain').innerHTML=`<b>${S.lessons}</b> lessons`;$('#f-ver').innerHTML=`now at <b>v${S.version}</b>`}
