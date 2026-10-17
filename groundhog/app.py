@@ -411,7 +411,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:6px 8px;b
 <div class="kpi hi"><div class="l">Lessons learned</div><div class="v" id="k-les">0</div><div class="d" id="k-les-d"></div></div>
 <div class="kpi"><div class="l">Switchyard routing</div><div class="v"><span id="k-eff" style="color:var(--eff)">0</span> / <span id="k-cap" style="color:var(--cap)">0</span></div><div class="d">efficient / capable prompts</div></div>
 <div class="kpi"><div class="l">Nemotron models</div><div class="v" id="k-mod">0</div><div class="d" id="k-mod-d">all NVIDIA Nemotron on Crusoe</div></div>
-<div class="kpi"><div class="l">Validations</div><div class="v"><span id="k-ok" style="color:#047857">0</span> / <span id="k-bad" style="color:#b91c1c">0</span></div><div class="d">worked / failed</div></div>
+<div class="kpi"><div class="l">Checks</div><div class="v"><span id="k-ok" style="color:#047857">0</span> / <span id="k-bad" style="color:#b91c1c">0</span></div><div class="d">passed / failed · verifier &amp; gate checks</div></div>
 <div class="kpi"><div class="l">Cost so far</div><div class="v" id="k-cost">$0</div><div class="d">Crusoe inference</div></div></div>
 
 <div class="view on" id="v-arch"><div class="card pad">
