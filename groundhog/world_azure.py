@@ -76,6 +76,9 @@ class Browser:
     def start(self) -> None:
         if self.thread and self.thread.is_alive():
             return
+        if self.storage_state is not None:  # stagger pool sign-ins: many simultaneous token redemptions make Azure fail
+            with _start_lock:
+                time.sleep(4)
         ready, self.error = threading.Event(), None
         self.thread = threading.Thread(target=self._loop, args=(ready,), daemon=True, name="browser")
         self.thread.start()
@@ -193,6 +196,7 @@ class Browser:
 
 BROWSER = Browser()
 _pool_lock, _free, _assigned = threading.Lock(), [], {}
+_start_lock = threading.Lock()
 
 
 def browser_for(task: dict | None) -> Browser:
@@ -211,22 +215,6 @@ def replace_browser(task: dict) -> None:
         tid = str(task.get("id", ""))
         if tid in _assigned and _assigned[tid] is not BROWSER:
             _assigned[tid] = Browser(storage_state=AUTH, name=_assigned[tid].name + "r")
-
-
-def go_fresh(task: dict):
-    B = browser_for(task)
-
-    def go():
-        B.page.goto(HOME, timeout=60_000)
-        for _ in range(60):
-            try:
-                if "/auth/login" not in B.page.url and B.page.query_selector("input[type=search]"):
-                    break
-            except Exception:
-                pass
-            time.sleep(1)
-        B.observe()
-    return go
 
 
 def release(task: dict) -> None:
@@ -375,28 +363,42 @@ def make_tools(task: dict, st: dict, role: str, human=None) -> list:
     return by_role.get(role, [])
 
 
-def reset(task: dict) -> None:
-    B = browser_for(task)
-
-    def go():
-        if not B.page.url.startswith(HOME):
-            B.page.goto(HOME, timeout=60_000)
-        # the portal bounces through /auth/login before it renders; wait for its global search bar (= signed in, loaded)
-        for _ in range(60):
-            if "login.microsoftonline" in B.page.url:
-                break
-            try:
-                if "/auth/login" not in B.page.url and B.page.query_selector("input[type=search]"):
-                    break
-            except Exception:  # navigation in progress
-                pass
-            time.sleep(1)
-        B.observe()
+def _signed_in(B: Browser) -> bool:
     try:
-        B.run(go, timeout=200)
-    except Exception:  # hung or crashed browser: replace it with a fresh one and try once more
+        return "/auth/login" not in B.page.url and "login.microsoftonline" not in B.page.url \
+            and B.page.query_selector("input[type=search]") is not None
+    except Exception:  # navigation in progress
+        return False
+
+
+def reset(task: dict) -> None:
+    """Start every task on the portal home, signed in. Raises InfraError if the session cannot be established."""
+    def go(B):
+        for attempt in range(3):
+            if attempt or not B.page.url.startswith(HOME):
+                B.page.goto(HOME, timeout=60_000)
+            for _ in range(45):  # the portal bounces through /auth/login before it renders
+                if _signed_in(B) or "login.microsoftonline" in B.page.url:
+                    break
+                time.sleep(1)
+            if _signed_in(B):
+                B.observe()
+                return True
+            time.sleep(3)
+        return False
+    for tries in range(2):
+        B = browser_for(task)
+        try:
+            if B.run(lambda: go(B), timeout=420):
+                return
+        except Exception:
+            pass
         replace_browser(task)
-        browser_for(task).run(go_fresh(task), timeout=200)
+    raise InfraError("could not establish a signed-in portal session")
+
+
+class InfraError(RuntimeError):
+    """Browser/session problem, not the agent's: the task is retried and never counted as a failure."""
 
 
 def final_state(task: dict | None = None) -> dict:
@@ -426,7 +428,7 @@ def observation(task: dict | None = None) -> dict | None:
     return B.obs
 
 
-# ---- tasks: 20 portal tasks (8 long-tail, >20 actions), graded on the final browser state ----
+# ---- tasks: 14 portal tasks (8 long-tail, >20 actions), graded on the final browser state ----
 def T(tid, q, url="", title="", text=(), answer="", long=False):
     return dict(id=f"AZ-{tid}", template=tid, question=q, long=long, check=dict(url=url, title=title, text=list(text), answer=answer))
 
@@ -480,12 +482,15 @@ ALL = {
                     "registrations (All applications) and tell me how many there are. Finish on App registrations.",
                     r"RegisteredApps|ApplicationsListBlade", r"App registrations", answer=r"[0-9a-f]{8}-[0-9a-f]{4}", long=True),
 }
-TRAIN_BATCHES = [["rg_list", "sub_name", "vm_wizard", "rg_tags_wizard"],
-                 ["vm_list", "keyvault_list", "storage_wizard", "sub_tour"],
-                 ["storage_list", "subscriptions", "entra_users", "keyvault_wizard"]]
-HELDOUT = ["cost", "advisor", "activity_log", "monitor", "policy", "webapp_wizard", "vnet_wizard", "entra_tour"]
+# 10 training tasks in 2 batches of 5 (3 short + 2 long-tail each); 4 hard long-tail held-out tasks
+TRAIN_BATCHES = [["rg_list", "vm_list", "sub_name", "vm_wizard", "rg_tags_wizard"],
+                 ["storage_list", "keyvault_list", "entra_users", "storage_wizard", "sub_tour"]]
+HELDOUT = ["webapp_wizard", "vnet_wizard", "keyvault_wizard", "entra_tour"]
+ALL = {k: v for k, v in ALL.items() if k in {t for b in TRAIN_BATCHES for t in b} | set(HELDOUT)}
 TASKS = {"train": [ALL[t] for b in TRAIN_BATCHES for t in b], "heldout": [ALL[t] for t in HELDOUT]}
 TASKS["val"], TASKS["test"] = TASKS["heldout"], TASKS["heldout"]
+
+
 def load_tasks(split: str) -> list[dict]:
     return [dict(t) for t in TASKS[split]]
 

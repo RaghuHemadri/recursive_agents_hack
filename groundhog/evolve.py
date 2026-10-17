@@ -84,7 +84,7 @@ def _log(name: str, rec: dict):
 
 
 def evaluate(hdir: Path, tasks: list[dict], tag: str, brain: Brain | None = None, record: bool = False,
-             workers: int = 6, llm: LLM | None = None) -> dict:
+             workers: int = 6, llm: LLM | None = None, learner=None) -> dict:
     """Runs a harness on tasks. `record` feeds pass/fail into the router posterior (training runs only)."""
     llm, h = llm or LLM(), load_harness(hdir)
     out_dir = RUNS / "traces" / tag
@@ -97,12 +97,24 @@ def evaluate(hdir: Path, tasks: list[dict], tag: str, brain: Brain | None = None
         if spent() > BUDGET_USD:
             raise BudgetStop(f"budget cap ${BUDGET_USD} reached")
         used = brain.ids_in_render() if brain else []
-        try:
-            res = Team(h, brain.render() if brain else "", llm, trace_dir=out_dir).run(t)
-        except Exception as ex:  # infrastructure failure (browser/provider): counted as unsolved, never kills the round
+        for attempt in range(3):  # infra failures (session lost, browser hung) are retried, never scored as agent failures
+            try:
+                if learner is not None and brain is not None:  # training: live brain + skills learned mid-task
+                    from .live import live_context
+                    md = live_context(brain, hdir)
+                else:  # held-out: the brain as it was when the task started (frozen)
+                    md = brain.render() if brain else ""
+                res = Team(h, md, llm, trace_dir=out_dir, learner=learner).run(t)
+                fin = (res.get("final") or {}).get("url", "")
+                if not ("/auth/login" in fin or "login.microsoftonline" in fin):
+                    break
+                err = "ended on the sign-in page"
+            except Exception as ex:
+                err = repr(ex)
             res = dict(task_id=t["id"], template=t["template"], answer=None, tokens=0, cost=0.0, cached=0, calls=0, explore=0,
-                       models={}, jobs={}, secs=0, trace=[dict(step=0, role="system", kind="guard", text=f"infra error: {ex!r}"[:300])],
+                       models={}, jobs={}, secs=0, trace=[dict(step=0, role="system", kind="guard", text=f"infra error: {err}"[:300])],
                        final={}, used={}, infra_error=True)
+            time.sleep(10)
         res["brain_used"] = used
         res["passed"] = world.grade(t, res)
         if t["template"] != "sec":

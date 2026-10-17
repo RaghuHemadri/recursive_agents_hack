@@ -156,6 +156,17 @@ class GroundhogMiddleware(AgentMiddleware):
     def _ev(self, **e):
         ev = dict(step=len(self.st["trace"]), t=round(time.time() - self.st["t0"], 1), role=self.role, model=self.model_id, **e)
         self.st["trace"].append(ev)
+        learner = self.team.learner
+        if learner is not None:  # mid-task adaptation from the team's own interaction (no human feedback)
+            k = ev.get("kind")
+            if k in ("guard", "escalate"):
+                learner.notify(self.st, k, f"{self.role}: {ev.get('text', '')}")
+            elif ev.get("tool") == "task":
+                learner.notify(self.st, "delegation", f"{(ev.get('args') or {}).get('subagent_type')} returned: {str(ev.get('result', ''))[:400]}")
+            elif ev.get("tool") == "submit" and str(ev.get("result", "")).startswith("REJECTED"):
+                learner.notify(self.st, "submit_rejected", str(ev.get("result", ""))[:300])
+            elif k in ("steer", "human"):
+                learner.notify(self.st, "human", str(ev.get("text", ""))[:400])
         if self.team.human:
             self.team.human.emit({k: (v if k != "result" else str(v)[:300]) for k, v in ev.items()})
 
@@ -221,6 +232,7 @@ class GroundhogMiddleware(AgentMiddleware):
                 cap, eff = self.team.router.tiers(self.role, self.job)
                 self.sy = self.sy or switchyard_route.make(sy)
                 model, tier, evidence = switchyard_route.decide(self.sy, request.messages, cap, eff)
+                st[f"sy_{tier}"] = st.get(f"sy_{tier}", 0) + 1
                 LLM._log(dict(event="switchyard", role=self.role, job=self.job, tier=tier, model=model, capable=cap,
                               efficient=eff, evidence=evidence, task=st["task"]["id"], ts=time.time()))
                 if model != self.model_id:
@@ -294,8 +306,10 @@ class GroundhogMiddleware(AgentMiddleware):
 
 class Team:
     def __init__(self, harness: dict, brain_md: str = "", llm: LLM | None = None, token_budget: int = 600_000,
-                 step_cap: int | None = None, trace_dir: Path | None = None, task_timeout_s: int | None = None, human=None):
+                 step_cap: int | None = None, trace_dir: Path | None = None, task_timeout_s: int | None = None, human=None,
+                 learner=None):
         self.h, self.brain_md, self.llm, self.human, self.world = harness, brain_md, llm or LLM(), human, WORLD
+        self.learner = learner
         self.router = Router(harness["routing"])
         self.token_budget, self.trace_dir = token_budget, trace_dir
         self.step_cap = step_cap or getattr(WORLD, "STEP_CAP", 16)
@@ -395,12 +409,33 @@ class Team:
                    answer=answer if answer and answer.lower() != "unsolved" else None, tokens=st["tokens"],
                    cost=round(st["cost"], 5), cached=st["cached"], calls=st["calls"], explore=st["explore"],
                    models=st["models"], jobs=st["jobs"], secs=round(time.time() - st["t0"], 1), trace=st["trace"],
-                   used={r: sorted(v) for r, v in st.get("used", {}).items()},
+                   used={r: sorted(v) for r, v in st.get("used", {}).items()}, metrics=metrics(st),
                    final=self.world.final_state(task))
         if self.trace_dir:
             self.trace_dir.mkdir(parents=True, exist_ok=True)
             (self.trace_dir / f"{task['id']}.json").write_text(json.dumps(res, default=str, indent=1))
         return res
+
+
+ACTIONS = {"click", "type_text", "press_key", "go_to_url", "scroll", "observe", "read_page", "wait"}
+
+
+def metrics(st: dict) -> dict:
+    """How the task was done, not only whether: effort, detours, recoveries and routing."""
+    tr = st["trace"]
+    res_of = lambda e: str(e.get("result", ""))  # noqa: E731
+    subs = [str((e.get("args") or {}).get("subagent_type", "")) for e in tr if e.get("tool") == "task"]
+    return dict(actions=sum(1 for e in tr if e.get("tool") in ACTIONS),
+                clicks=sum(1 for e in tr if e.get("tool") == "click"), typed=sum(1 for e in tr if e.get("tool") == "type_text"),
+                model_calls=st["calls"], tokens=st["tokens"], cost=round(st["cost"], 5), secs=round(time.time() - st["t0"], 1),
+                delegations=len(subs), subagents=sorted(set(subs)), scout_calls=sum(1 for x in subs if x == "scout"),
+                specialist_calls=sum(1 for x in subs if x and not x.startswith(("scout", "analyst-", "verifier-"))),
+                guards=sum(1 for e in tr if e.get("kind") == "guard"), escalations=sum(1 for e in tr if e.get("kind") == "escalate"),
+                fallbacks=sum(1 for e in tr if e.get("kind") == "fallback"), reroutes=sum(1 for e in tr if e.get("kind") == "reroute"),
+                tool_errors=sum(1 for e in tr if res_of(e).startswith(("ERROR", "Error", "DENIED"))),
+                submit_rejects=sum(1 for e in tr if e.get("tool") == "submit" and res_of(e).startswith("REJECTED")),
+                asks=sum(1 for e in tr if e.get("tool") == "ask_human"), sy_capable=st.get("sy_capable", 0),
+                sy_efficient=st.get("sy_efficient", 0), models=sorted({m for v in st.get("used", {}).values() for m in v}))
 
 
 def build_check(hdir: Path) -> None:
