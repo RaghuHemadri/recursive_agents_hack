@@ -30,6 +30,7 @@ from .config import HARNESS, RUNS, world  # noqa: E402
 from .evolve import current_version, learn, propose, remember_validations  # noqa: E402
 from .evolve import new_version as _new_version  # noqa: E402
 from .human import Human  # noqa: E402
+from .live import LiveLearner, live_context  # noqa: E402
 from .llm import LLM  # noqa: E402
 from .router import BENCH, Router  # noqa: E402
 
@@ -132,6 +133,9 @@ def learner() -> None:
 
 
 threading.Thread(target=learner, daemon=True, name="learner").start()
+# mid-task adaptation from the request and the team's own interaction (human messages go through learn_q above)
+LIVE = LiveLearner(brain, llm, on_event=lambda r: note(r["kind"], r["title"], r.get("text", ""), diff=r.get("diff", ""),
+                                                        version=r.get("version")), skip={"human"})
 
 
 def run_task(text: str) -> None:
@@ -143,18 +147,16 @@ def run_task(text: str) -> None:
         task = dict(id=task_id, template="live", question=text)
         note("task", f"Task started on harness {label}", text, version=label)
         used = brain.ids_in_render()
-        team = Team(h, brain.render, llm, trace_dir=RUNS / "traces" / "live", human=human, step_cap=24, task_timeout_s=1500)
+        team = Team(h, live_context(brain, __import__("pathlib").Path(hdir)), llm, trace_dir=RUNS / "traces" / "live",
+                    human=human, step_cap=30, task_timeout_s=1500, learner=LIVE)
         state["team"] = team
         res = team.run(task)
         res.update(brain_used=used, question=text)
         n_actions = sum(1 for e in res["trace"] if e.get("tool") in ACTIONS)
-        verdict = human.ask(f"Finished: {res['answer']!r} after {n_actions} screen actions "
-                            f"(now on '{(res['final'] or {}).get('title', '')}'). Did it do the task correctly?", kind="verdict") or ""
-        res["passed"] = verdict.strip().lower().startswith(("y", "\U0001f44d"))
-        res["trace"].append(dict(step=len(res["trace"]), role="human", kind="verdict", text=verdict))
+        res["passed"] = res["answer"] is not None  # the team's own verifier-confirmed judgement (no human feedback needed)
         (RUNS / "traces" / "live" / f"{task_id}.json").write_text(json.dumps(res, default=str, indent=1))
         before = {j: dict(v) for j, v in Router.stats().items()}
-        for role, models in res.get("used", {}).items():  # router learns from this interaction
+        for role, models in res.get("used", {}).items():
             for m in models:
                 Router.record(res["jobs"][role], m, res["passed"])
         r = Router(h["routing"])
@@ -166,18 +168,24 @@ def run_task(text: str) -> None:
                 s1, n1 = Router.stats()[job][m]
                 k, p = r.cfg.get("prior_strength", 4), r.prior(m, job) if m in r.bench else 0
                 moves.append(f"{job}: {short(m)} {(k * p + s0) / (k + n0):.2f} -> {(k * p + s1) / (k + n1):.2f}")
-        note("router", f"Router learned from your {'thumbs up' if res['passed'] else 'thumbs down'}", "\n".join(sorted(set(moves))))
+        note("router", f"Router learned: task {'completed' if res['passed'] else 'not completed'} (self-assessed)", "\n".join(sorted(set(moves))))
         learn(brain, llm, Router(h["routing"]), [res])
         remember_validations(brain, [res], "live")
         for e in res.get("brain_events", []):
             note("lesson", "Lesson from this task" if e.startswith("add") else e.split(":")[0], e.split(":", 1)[-1].strip())
-        if not res["passed"]:
-            improve(f"LIVE TASK {text!r} FAILED (human: {verdict}). Make ONE edit that fixes what went wrong.",
-                    f"you marked the task as failed ({verdict})"[:200], task_id)
-        elif n_actions >= 8 and not state.get("live_learned"):
-            improve(f"LIVE TASK {text!r} SUCCEEDED but needed {n_actions} screen actions. Write or update ONE skill "
+        if res["passed"] and n_actions >= 8 and not state.get("live_learned"):
+            improve(f"LIVE TASK {text!r} was completed but needed {n_actions} screen actions. Write or update ONE skill "
                     "(skills/<name>/SKILL.md with Deep Agents frontmatter) capturing the procedure that worked, so next time "
-                    "it takes fewer steps.", f"long task succeeded in {n_actions} actions: saving the procedure as a skill", task_id)
+                    "it takes fewer steps.", f"long task completed in {n_actions} actions: saving the procedure as a skill", task_id)
+        elif not res["passed"]:
+            improve(f"LIVE TASK {text!r} was NOT completed (the team's verifier did not confirm it). Make ONE edit that fixes "
+                    "what went wrong.", "task not completed: fixing what went wrong", task_id)
+        state["busy"] = False
+        verdict = human.ask(f"Finished: {res['answer']!r} after {n_actions} screen actions (now on "
+                            f"'{(res['final'] or {}).get('title', '')}'). Optional: did it do the task correctly?", kind="verdict") or ""
+        if verdict:
+            ok = verdict.strip().lower().startswith(("y", "\U0001f44d"))
+            brain.record_validation("human", "verdict", text[:120], ok, verdict[:200], task_id, "live")
     except Exception as e:  # keep the session alive; the error is shown in the chat
         note("error", "Error", f"{type(e).__name__}: {e}"[:500])
     finally:
@@ -565,7 +573,7 @@ function bar(v,c){return `<div class="bar"><i style="width:${Math.round(v*100)}%
 async function refresh(){try{const S=await (await fetch('/api/summary')).json();
  $('#k-ver').textContent='v'+S.version;$('#k-ver-d').textContent=S.versions_learned+' version(s) learned';$('#k-les').textContent=S.lessons;
  $('#k-les-d').textContent=S.trusted+' trusted · '+S.quarantined+' quarantined';$('#k-eff').textContent=S.efficient;$('#k-cap').textContent=S.capable;
- $('#k-mod').textContent=S.models.length;$('#k-mod-d').title=S.models.map(mn).join(', ');$('#k-ok').textContent=S.validations_ok;$('#k-bad').textContent=S.validations_bad;$('#k-cost').textContent='$'+S.spent;
+ const nv=S.models.filter(m=>/nemotron/i.test(m));$('#k-mod').textContent=nv.length;$('#k-mod-d').textContent=(S.models.length-nv.length)?`NVIDIA on Crusoe + ${S.models.length-nv.length} other`:'all NVIDIA Nemotron on Crusoe';$('#k-mod-d').title=S.models.map(mn).join(', ');$('#k-ok').textContent=S.validations_ok;$('#k-bad').textContent=S.validations_bad;$('#k-cost').textContent='$'+S.spent;
  const v=document.querySelector('nav button.on').dataset.v;
  if(v==='how'||v==='routing'){const R=await (await fetch('/api/routing')).json(),T=R.tiers,tp=k=>T[k]?`<span class="badge b-p">capable</span> ${mn(T[k][0])}<br><span class="badge b-e">efficient</span> ${mn(T[k][1])}`:'';
   if(v==='how'){$('#f-lead').innerHTML=tp('lead:');$('#f-scout').innerHTML=tp('scout:');$('#f-analyst').innerHTML=tp('analyst:web_navigation');$('#f-sy').innerHTML=`<b>${S.efficient}</b> efficient · <b>${S.capable}</b> capable so far`;$('#f-brain').innerHTML=`<b>${S.lessons}</b> lessons`;$('#f-ver').innerHTML=`now at <b>v${S.version}</b>`}

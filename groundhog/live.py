@@ -39,14 +39,17 @@ def live_context(brain, start_dir: Path):
 
 
 class LiveLearner:
-    def __init__(self, brain, llm, on_event=None, max_edits_per_task: int = 2, improve: bool = True):
+    def __init__(self, brain, llm, on_event=None, max_edits_per_task: int = 2, improve: bool = True, skip=()):
         self.brain, self.llm, self.on_event, self.max_edits, self.improve = brain, llm, on_event, max_edits_per_task, improve
+        self.skip = set(skip)
         self.q: queue.Queue = queue.Queue()
         self.edits: dict[str, int] = {}
         self.last_lesson: dict[str, float] = {}
         threading.Thread(target=self._work, daemon=True, name="live-learner").start()
 
     def notify(self, st: dict, kind: str, detail: str) -> None:
+        if kind in self.skip:
+            return
         task = st.get("task") or {}
         self.q.put(dict(task_id=task.get("id", "?"), intent=task.get("question", ""), kind=kind, detail=detail[:600],
                         trace=list(st.get("trace", []))[-14:], step=len(st.get("trace", [])), ts=time.time()))
@@ -66,6 +69,17 @@ class LiveLearner:
             except Exception as e:  # mid-task learning must never break a running task
                 self._emit("error", "Mid-task learning failed", f"{type(e).__name__}: {e}"[:300], task=item["task_id"])
 
+    def _chat(self, router, msgs, tid):
+        """Reflector call with fallback: a model out of capacity is cooled down and the next-best model is used."""
+        from .llm import Unavailable
+        for _ in range(3):
+            model = router.pick("reflector")
+            try:
+                return self.llm.chat(model, msgs, max_tokens=1200, meta=dict(role="reflector", task=tid))[0]
+            except Unavailable:
+                Router.cool_down(model)
+        raise RuntimeError("no reflector model available")
+
     def _handle(self, it: dict) -> None:
         tid = it["task_id"]
         ctx = "\n".join(f"{e.get('role')}/{e.get('kind')} {e.get('tool', '')} {json.dumps(e.get('args', ''), default=str)[:100]}"
@@ -77,10 +91,10 @@ class LiveLearner:
             from .agent import load_harness
             from .evolve import current_version
             router = Router(load_harness(HARNESS / f"v{current_version()}")["routing"])
-            msg, _ = self.llm.chat(router.pick("reflector"), [
+            msg = self._chat(router, [
                 {"role": "system", "content": LESSON_PROMPT},
                 {"role": "user", "content": f"USER REQUEST: {it['intent']}\nWHAT JUST HAPPENED ({it['kind']}): {it['detail']}\n"
-                                            f"RECENT ACTIONS:\n{ctx}"}], max_tokens=1200, meta=dict(role="reflector", task=tid))
+                                            f"RECENT ACTIONS:\n{ctx}"}], tid)
             m = re.search(r"\{.*\}", msg.content or "", re.S)
             try:
                 ops = json.loads(m.group(0)) if m else {}
