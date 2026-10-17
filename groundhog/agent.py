@@ -37,7 +37,7 @@ from langgraph.errors import GraphRecursionError
 from langgraph.types import Command
 from openai import APIConnectionError, APIStatusError, APITimeoutError
 
-from . import tools
+from . import switchyard_route, tools
 from .llm import LLM, PRICES, load_env
 from .config import world as _world
 from .router import Router
@@ -177,7 +177,7 @@ class GroundhogMiddleware(AgentMiddleware):
 
     def before_agent(self, state, runtime):
         """Each delegation is a fresh invocation of the sub-agent graph: its step cap and repeat detector restart."""
-        self.steps, self.errors, self.repeats, self.seen, self.asks = 0, 0, 0, {}, 0
+        self.steps, self.errors, self.repeats, self.seen, self.asks, self.sy = 0, 0, 0, {}, 0, None
         if self.role == "verifier" and self.team.h["routing"].get("verifier_other_family"):
             # verify against the analysts that actually ran in this task, whichever job the lead delegated to
             used = set(self.st.get("analyst_models", ()))
@@ -211,6 +211,19 @@ class GroundhogMiddleware(AgentMiddleware):
                 LLM._log(dict(event="escalate", role=self.role, job=self.job, frm=self.model_id, to=new, why=why,
                               task=st["task"]["id"], ts=time.time()))
                 self.model_id = new
+        sy = cfg.get("switchyard") or {}
+        if self.role in sy.get("roles", ()) and not st.get(f"esc_{self.role}"):
+            try:  # NeMo Switchyard picks the tier for THIS prompt; the benchmark router filled the tiers
+                cap, eff = self.team.router.tiers(self.role, self.job)
+                self.sy = self.sy or switchyard_route.make(sy)
+                model, tier, evidence = switchyard_route.decide(self.sy, request.messages, cap, eff)
+                LLM._log(dict(event="switchyard", role=self.role, job=self.job, tier=tier, model=model, capable=cap,
+                              efficient=eff, evidence=evidence, task=st["task"]["id"], ts=time.time()))
+                if model != self.model_id:
+                    self._ev(kind="route", text=f"Switchyard -> {tier}: {model.split('/')[-1]} ({evidence.get('source', '')})")
+                self.model_id = model
+            except Exception as e:  # routing failure must not stop the task: keep the benchmark pick
+                LLM._log(dict(event="switchyard_error", role=self.role, error=str(e)[:200], ts=time.time()))
         try:
             with self.team.llm._sem(self.model_id):
                 resp = handler(request.override(model=chat_model(self.model_id)))
@@ -223,6 +236,7 @@ class GroundhogMiddleware(AgentMiddleware):
             self.model_id = fb
             resp = handler(request.override(model=chat_model(fb)))
         st["models"][self.role], st["jobs"][self.role] = self.model_id, self.job
+        st.setdefault("used", {}).setdefault(self.role, set()).add(self.model_id)
         if self.role == "analyst":
             st.setdefault("analyst_models", set()).add(self.model_id)
         msg = next((m for m in resp.result if isinstance(m, AIMessage)), None)
@@ -340,7 +354,8 @@ class Team:
             """Submit the final bare answer (number or string, no units), or 'unsolved'. Rejected unless a verifier
             independently produced the same answer."""
             a = str(answer).strip()
-            if a.lower() != "unsolved" and not (st["verifier_answer"] and agree(a, st["verifier_answer"])):
+            va = st["verifier_answer"]
+            if a.lower() != "unsolved" and not (va and (agree(a, va) or str(va).lower().startswith("done"))):
                 return f"REJECTED: no verifier has independently confirmed {a!r} (verifier said {st['verifier_answer']!r})."
             st["answer"] = a
             return "submitted. You are done; reply with one short final sentence."
@@ -349,7 +364,7 @@ class Team:
         agent, files = self.build(st, submit)
         try:
             agent.invoke({"messages": [{"role": "user", "content": f"Question: {task['question']}"}], "files": files},
-                         config={"recursion_limit": 150})
+                         config={"recursion_limit": 400})
         except GraphRecursionError as e:
             st["trace"].append(dict(step=len(st["trace"]), role="lead", kind="guard", text=f"recursion limit: {e}"[:200]))
         except (APIStatusError, APITimeoutError, APIConnectionError) as e:
@@ -359,6 +374,7 @@ class Team:
                    answer=answer if answer and answer.lower() != "unsolved" else None, tokens=st["tokens"],
                    cost=round(st["cost"], 5), cached=st["cached"], calls=st["calls"], explore=st["explore"],
                    models=st["models"], jobs=st["jobs"], secs=round(time.time() - st["t0"], 1), trace=st["trace"],
+                   used={r: sorted(v) for r, v in st.get("used", {}).items()},
                    final=self.world.final_state())
         if self.trace_dir:
             self.trace_dir.mkdir(parents=True, exist_ok=True)

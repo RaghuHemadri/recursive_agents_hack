@@ -42,10 +42,10 @@ Routing from benchmarks alone (before any measured outcomes; `python -m groundho
 Nemotron-3-Ultra has the best scores in the file but isn't served on our Crusoe account, so it's excluded
 automatically. Measured outcomes then move picks (e.g. the scout moved after Nano went 3/7 in the first run).
 
-## Aetheris for Azure (computer-use world, same harness and self-improvement loop)
+## Groundhog for Azure (computer-use world, same harness and self-improvement loop)
 
-Text-guided, multimodal computer use of the real Azure portal, built from [aetheris](https://github.com/savir2010/aetheris)
-(voice removed; its screenshot -> "what to click" -> highlight idea became real actions) on the unchanged Groundhog
+Text-guided, multimodal computer use of the real Azure portal (screenshot -> "what to click" -> real actions) on the
+unchanged Groundhog
 harness (Deep Agents lead/scout/analyst/verifier, benchmark router, shared brain, guards) and meta-harness (evolve loop).
 
 ```bash
@@ -59,6 +59,13 @@ GROUNDHOG_WORLD=azure .venv/bin/python -m groundhog.evolve evolve --limit 4   # 
   (all tested VLMs mislocated a plain red square). Across iframes. Lead (text-only) gets the URL + element list.
 - **Nemotron only** (frozen for this world): screen roles route to Nemotron-3.5-Super-VL (WebVoyager 77.7, OSWorld-
   Verified 51.1) / Nano-Omni by benchmarks; the verifier is always a different model than the analyst.
+- **NeMo Switchyard routing**: the embedded Switchyard `stage_router` (the Execution routing behind its `auto` preset)
+  routes every lead/scout/analyst prompt to the capable or efficient Nemotron model from the agent's tool activity
+  (errors/spinning/exploring -> capable, clean progress -> efficient). The adaptive benchmark router fills the two tiers
+  per job and updates them from every thumbs up/down. Config: `switchyard:` in `harness_azure/vN/routing.yaml`.
+- **Live harness adaptation**: after a failure, human steering, or a long success, the improver proposes one edit
+  (prompt, sub-agent prompt, skill or routing); it runs as a trial on the next task; thumbs up promotes it to
+  `harness_azure/v{N+1}` (git commit), thumbs down rolls it back. All visible in the app's Harness tab.
 - **Ask & steer**: `ask_human` for every agent; a guard about to trip (steps/time/repeats) asks you instead of giving
   up; anything you type while it runs is injected as `[HUMAN STEERING]` before the next model call.
 - **Safety (frozen tools)**: destructive/submitting clicks (delete, stop, purchase, create on forms, save, assign...)

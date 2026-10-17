@@ -22,3 +22,7 @@ verifier_other_family: true   # all-Nemotron: the verifier is then a different m
 escalation: {after_tool_errors: 2, after_repeated_calls: 2}
 pins: {}
 exclude: []
+# NeMo Switchyard (embedded libsy stage_router, the Execution routing behind its `auto` preset): for these roles every
+# prompt is routed to the capable or efficient Nemotron model from the agent's tool activity; the tiers come from the
+# benchmark router above (capable = best on the job's benchmarks + measured outcomes, efficient = best cheaper model).
+switchyard: {roles: [lead, scout, analyst], picker: efficient_first, confidence_threshold: 0.5}

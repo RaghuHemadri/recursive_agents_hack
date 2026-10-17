@@ -81,6 +81,17 @@ class Router:
             return m
         return rows[0][1]
 
+    def tiers(self, role: str, task_job: str | None = None) -> tuple[str, str]:
+        """(capable, efficient) models for NeMo Switchyard: capable = best on the job's benchmarks + measured outcomes
+        (price ignored); efficient = best cheaper model under the job's cost weight (same model if none is cheaper)."""
+        if pin := self.cfg.get("pins", {}).get(role):
+            return pin, pin
+        cap = self.pick(role, task_job, capable=True)
+        price = lambda m: (BENCH[m]["price"][0] * 3 + BENCH[m]["price"][1]) / 4  # noqa: E731
+        rows = self.table(self.job_for(role, task_job), vision=role in self.cfg.get("vision_roles", []))
+        eff = next((m for _, m, *_ in rows if price(m) < price(cap) and _cooldown.get(m, 0) <= time.time()), cap)
+        return cap, eff
+
     def job_for(self, role: str, task_job: str | None) -> str:
         """Roles with a fixed job use it; task roles (analyst/verifier) use the job the lead tagged for this task."""
         job = self.cfg["roles"][role]

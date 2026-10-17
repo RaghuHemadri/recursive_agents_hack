@@ -12,6 +12,7 @@ class Human:
         self.inbox: list[str] = []
         self.answers: queue.Queue = queue.Queue()
         self.waiting: str | None = None
+        self.waiting_kind: str | None = None
         self.ask_timeout_s = ask_timeout_s
 
     def emit(self, ev: dict) -> None:
@@ -34,13 +35,14 @@ class Human:
             out, self.inbox = self.inbox, []
         return out
 
-    def ask(self, question: str) -> str | None:
+    def ask(self, question: str, kind: str = "question") -> str | None:
+        """kind: question (free text) | approval (approve/deny icons) | verdict (thumbs up/down icons)."""
         with self.ask_lock:  # one question at a time
-            self.waiting = question
-            self.emit({"role": "agent", "kind": "question", "text": question})
+            self.waiting, self.waiting_kind = question, kind
+            self.emit({"role": "agent", "kind": "question", "qkind": kind, "text": question})
             try:
                 return self.answers.get(timeout=self.ask_timeout_s)
             except queue.Empty:
                 return None
             finally:
-                self.waiting = None
+                self.waiting, self.waiting_kind = None, None

@@ -197,7 +197,7 @@ def _guard(what: str, label: str, url: str, human, st: dict, need: bool) -> str 
         return None
     from . import tools as T
     if human:
-        ans = (human.ask(f"Approval needed: {what} {label!r} on {url}. Reply 'yes' to allow, anything else to refuse.") or "")
+        ans = (human.ask(f"Approval needed: {what} {label!r} on {url}.", kind="approval") or "")
         if ans.strip().lower().startswith(("y", "approve")):
             st.setdefault("guarded", []).append(f"{what} {label}")
             return None
