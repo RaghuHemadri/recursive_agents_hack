@@ -229,8 +229,12 @@ def events():
 
 @app.get("/screen.jpg")
 def screen():
-    p = RUNS / "screens" / "latest.jpg"
-    return send_file(p, mimetype="image/jpeg", max_age=0) if p.exists() else ("", 204)
+    """The live browser while a live task runs, otherwise the most recent screen of any (experiment) browser."""
+    d = RUNS / "screens"
+    live = d / "latest.jpg"
+    shots = sorted(d.glob("*.jpg"), key=lambda f: f.stat().st_mtime) if d.exists() else []
+    p = live if state["busy"] and live.exists() else (shots[-1] if shots else None)
+    return send_file(p, mimetype="image/jpeg", max_age=0) if p else ("", 204)
 
 
 def _jl(name):
