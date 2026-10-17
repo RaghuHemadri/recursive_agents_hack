@@ -44,14 +44,14 @@ and specialist use, guards, escalations, fallbacks, tool errors, blocked submits
 final screenshot.
 
 ```bash
-python3 -m venv --system-site-packages .venv && .venv/bin/pip install -r requirements.txt   # + nemo_switchyard wheel
+python3 -m venv --system-site-packages .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python -m playwright install chromium
 echo "LLM_API_KEY=<Crusoe key>" > .env
 .venv/bin/python -m groundhog.app            # http://localhost:7860 · "Open Azure portal" → sign in yourself
 GROUNDHOG_BROWSERS=10 .venv/bin/python -m groundhog.experiment   # unattended experiment (Results tab updates live)
 ```
 
-The app: **Live demo** (chat, steer any time, approve risky clicks, 👍/👎 optional), **How it works**, **Harness
+The app: **Architecture** (live system diagram + guided tour), **Live demo** (chat, steer any time, approve risky clicks, 👍/👎 optional), **Harness
 versions** (timeline + diffs), **Model routing**, **Knowledge**, **Results** (quantitative and qualitative).
 
 ## Results
