@@ -97,7 +97,12 @@ def evaluate(hdir: Path, tasks: list[dict], tag: str, brain: Brain | None = None
         if spent() > BUDGET_USD:
             raise BudgetStop(f"budget cap ${BUDGET_USD} reached")
         used = brain.ids_in_render() if brain else []
-        res = Team(h, brain.render() if brain else "", llm, trace_dir=out_dir).run(t)
+        try:
+            res = Team(h, brain.render() if brain else "", llm, trace_dir=out_dir).run(t)
+        except Exception as ex:  # infrastructure failure (browser/provider): counted as unsolved, never kills the round
+            res = dict(task_id=t["id"], template=t["template"], answer=None, tokens=0, cost=0.0, cached=0, calls=0, explore=0,
+                       models={}, jobs={}, secs=0, trace=[dict(step=0, role="system", kind="guard", text=f"infra error: {ex!r}"[:300])],
+                       final={}, used={}, infra_error=True)
         res["brain_used"] = used
         res["passed"] = world.grade(t, res)
         if t["template"] != "sec":

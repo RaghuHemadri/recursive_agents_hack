@@ -206,6 +206,29 @@ def browser_for(task: dict | None) -> Browser:
         return _assigned[tid]
 
 
+def replace_browser(task: dict) -> None:
+    with _pool_lock:
+        tid = str(task.get("id", ""))
+        if tid in _assigned and _assigned[tid] is not BROWSER:
+            _assigned[tid] = Browser(storage_state=AUTH, name=_assigned[tid].name + "r")
+
+
+def go_fresh(task: dict):
+    B = browser_for(task)
+
+    def go():
+        B.page.goto(HOME, timeout=60_000)
+        for _ in range(60):
+            try:
+                if "/auth/login" not in B.page.url and B.page.query_selector("input[type=search]"):
+                    break
+            except Exception:
+                pass
+            time.sleep(1)
+        B.observe()
+    return go
+
+
 def release(task: dict) -> None:
     with _pool_lock:
         b = _assigned.pop(str(task.get("id", "")), None)
@@ -359,7 +382,7 @@ def reset(task: dict) -> None:
         if not B.page.url.startswith(HOME):
             B.page.goto(HOME, timeout=60_000)
         # the portal bounces through /auth/login before it renders; wait for its global search bar (= signed in, loaded)
-        for _ in range(90):
+        for _ in range(60):
             if "login.microsoftonline" in B.page.url:
                 break
             try:
@@ -369,7 +392,11 @@ def reset(task: dict) -> None:
                 pass
             time.sleep(1)
         B.observe()
-    B.run(go, timeout=120)
+    try:
+        B.run(go, timeout=200)
+    except Exception:  # hung or crashed browser: replace it with a fresh one and try once more
+        replace_browser(task)
+        browser_for(task).run(go_fresh(task), timeout=200)
 
 
 def final_state(task: dict | None = None) -> dict:

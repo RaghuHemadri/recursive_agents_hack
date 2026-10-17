@@ -226,3 +226,15 @@
 {"model": "Qwen/Qwen3.8-27B", "tin": 4470, "tout": 116, "cached": 2176, "cost": 0.0004934, "role": "analyst", "job": "web_navigation", "task": "AZ-webapp_wizard", "ts": 1792277983.987433}
 {"model": "Qwen/Qwen3.8-27B", "tin": 4614, "tout": 143, "cached": 2496, "cost": 0.0005186, "role": "analyst", "job": "web_navigation", "task": "AZ-webapp_wizard", "ts": 1792277987.1525457}
 {"model": "Qwen/Qwen3.8-27B", "tin": 4769, "tout": 201, "cached": 2496, "cost": 0.0005573, "role": "analyst", "job": "web_navigation", "task": "AZ-webapp_wizard", "ts": 1792277990.4972658}
+{"model": "Qwen/Qwen3.8-27B", "tin": 4896, "tout": 259, "cached": 2816, "cost": 0.0005932, "role": "analyst", "job": "web_navigation", "task": "AZ-webapp_wizard", "ts": 1792277993.850881}
+{"model": "Qwen/Qwen3.8-27B", "tin": 5008, "tout": 85, "cached": 2944, "cost": 0.0005348, "role": "analyst", "job": "web_navigation", "task": "AZ-webapp_wizard", "ts": 1792277997.0062501}
+{"model": "Qwen/Qwen3.8-27B", "tin": 5120, "tout": 44, "cached": 3072, "cost": 0.0005296, "role": "analyst", "job": "web_navigation", "task": "AZ-webapp_wizard", "ts": 1792277999.7205327}
+{"model": "Qwen/Qwen3.8-27B", "tin": 5178, "tout": 693, "cached": 3072, "cost": 0.000795, "role": "analyst", "job": "web_navigation", "task": "AZ-webapp_wizard", "ts": 1792278003.67139}
+{"model": "Qwen/Qwen3.8-27B", "tin": 5306, "tout": 153, "cached": 3328, "cost": 0.0005918000000000001, "role": "analyst", "job": "web_navigation", "task": "AZ-webapp_wizard", "ts": 1792278006.7432554}
+{"model": "Qwen/Qwen3.8-27B", "tin": 5385, "tout": 174, "cached": 3392, "cost": 0.0006081, "role": "analyst", "job": "web_navigation", "task": "AZ-webapp_wizard", "ts": 1792278008.4369206}
+{"model": "Qwen/Qwen3.8-27B", "tin": 5460, "tout": 1008, "cached": 3520, "cost": 0.0009492000000000001, "role": "analyst", "job": "web_navigation", "task": "AZ-webapp_wizard", "ts": 1792278016.4344487}
+{"model": "Qwen/Qwen3.8-27B", "tin": 5545, "tout": 135, "cached": 3520, "cost": 0.0006085, "role": "analyst", "job": "web_navigation", "task": "AZ-webapp_wizard", "ts": 1792278019.564866}
+{"model": "Qwen/Qwen3.8-27B", "tin": 5705, "tout": 3396, "cached": 3648, "cost": 0.0019289, "role": "analyst", "job": "web_navigation", "task": "AZ-webapp_wizard", "ts": 1792278033.7795002}
+{"event": "switchyard", "role": "lead", "job": "planning", "tier": "efficient", "model": "nvidia/Nemotron-3.5-Lightning-30B-A3B", "capable": "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B", "efficient": "nvidia/Nemotron-3.5-Lightning-30B-A3B", "evidence": {"source": "fall_open"}, "task": "AZ-webapp_wizard", "ts": 1792278035.0611193}
+{"model": "nvidia/Nemotron-3.5-Lightning-30B-A3B", "tin": 3945, "tout": 264, "cached": 0, "cost": 0.00025005000000000003, "role": "lead", "job": "planning", "task": "AZ-webapp_wizard", "ts": 1792278037.9655206}
+{"model": "Qwen/Qwen3.8-27B", "tin": 3984, "tout": 342, "cached": 2112, "cost": 0.0005352, "role": "analyst", "job": "web_navigation", "task": "AZ-webapp_wizard", "ts": 1792278040.8604436}
