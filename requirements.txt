@@ -2,3 +2,9 @@ deepagents==0.7.28
 langchain-openai==1.7.2
 RapidFuzz==3.14.6
 streamlit==1.66.0
+nemo-switchyard==0.3.0   # NeMo Switchyard routing (switchyard.libsy); NOT the unrelated "switchyard" package
+flask==3.1.3             # demo app (groundhog/app.py)
+playwright==1.64.0       # computer-use worlds (Azure, Crusoe); then run: playwright install chromium
+Pillow==13.0.0           # Set-of-Marks screenshots
+PyYAML==6.0.3
+pytest

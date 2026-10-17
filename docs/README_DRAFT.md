@@ -253,6 +253,7 @@ And one it **rejected**, with the gate's reason, to show the gate is doing its j
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+.venv/bin/playwright install chromium                                 # browser for the Azure / Crusoe worlds
 echo "LLM_API_KEY=<your Crusoe key>" > .env
 .venv/bin/python -m groundhog.world                                   # build DBs, tasks, answers
 .venv/bin/python -m pytest -q tests                                   # offline self-checks
