@@ -1,0 +1,178 @@
+{
+ "A-revenue_month-0": {
+  "db": "gpuco_A.db",
+  "sql": "SELECT SUM(amount) / 100.0 FROM invoices WHERE month = '2026-08' AND lower(status) != 'void'"
+ },
+ "A-active_tenants_tier-0": {
+  "db": "gpuco_A.db",
+  "sql": "SELECT COUNT(*) FROM tenants t WHERE tier = 'free' AND t.deleted_at IS NULL"
+ },
+ "A-completed_jobs_gpu-0": {
+  "db": "gpuco_A.db",
+  "sql": "SELECT COUNT(*) FROM jobs j WHERE CASE j.gpu_model WHEN 'H100' THEN 'H100' WHEN 'h100-sxm5' THEN 'H100' WHEN 'NVIDIA H100 80GB HBM3' THEN 'H100' WHEN 'H200' THEN 'H200' WHEN 'h200-141g' THEN 'H200' WHEN 'B200' THEN 'B200' WHEN 'nvidia-b200' THEN 'B200' WHEN 'A100' THEN 'A100' WHEN 'a100-80gb' THEN 'A100' WHEN 'NVIDIA A100-SXM4-80GB' THEN 'A100' END = 'A100' AND strftime('%Y-%m', j.started_at / 1000, 'unixepoch') = '2026-09' AND lower(j.status) = 'completed' AND j.is_deleted = 0"
+ },
+ "A-gpu_hours_tenant-0": {
+  "db": "gpuco_A.db",
+  "sql": "SELECT SUM(j.num_gpus * (j.ended_at - j.started_at) / (3600.0 * 1000)) FROM jobs j JOIN tenants t USING(tenant_id) WHERE t.name = 'QuantaCloud-6' AND strftime('%Y-%m', j.started_at / 1000, 'unixepoch') = '2026-07' AND j.is_deleted = 0"
+ },
+ "A-failed_pct_region-0": {
+  "db": "gpuco_A.db",
+  "sql": "SELECT 100.0 * SUM(lower(j.status) = 'failed') / COUNT(*) FROM jobs j JOIN nodes n USING(node_id) JOIN clusters c USING(cluster_id) WHERE c.region = 'eu-north' AND j.is_deleted = 0"
+ },
+ "A-compute_cost_gpu-0": {
+  "db": "gpuco_A.db",
+  "sql": "SELECT SUM(j.num_gpus * (j.ended_at - j.started_at) / (3600.0 * 1000) * g.price_per_gpu_hour * (CASE WHEN j.preemptible = 1 THEN g.spot_multiplier ELSE 1 END)) / 100.0 FROM jobs j JOIN gpu_types g ON g.name = CASE j.gpu_model WHEN 'H100' THEN 'H100' WHEN 'h100-sxm5' THEN 'H100' WHEN 'NVIDIA H100 80GB HBM3' THEN 'H100' WHEN 'H200' THEN 'H200' WHEN 'h200-141g' THEN 'H200' WHEN 'B200' THEN 'B200' WHEN 'nvidia-b200' THEN 'B200' WHEN 'A100' THEN 'A100' WHEN 'a100-80gb' THEN 'A100' WHEN 'NVIDIA A100-SXM4-80GB' THEN 'A100' END WHERE CASE j.gpu_model WHEN 'H100' THEN 'H100' WHEN 'h100-sxm5' THEN 'H100' WHEN 'NVIDIA H100 80GB HBM3' THEN 'H100' WHEN 'H200' THEN 'H200' WHEN 'h200-141g' THEN 'H200' WHEN 'B200' THEN 'B200' WHEN 'nvidia-b200' THEN 'B200' WHEN 'A100' THEN 'A100' WHEN 'a100-80gb' THEN 'A100' WHEN 'NVIDIA A100-SXM4-80GB' THEN 'A100' END = 'H100' AND strftime('%Y-%m', j.started_at / 1000, 'unixepoch') = '2026-08' AND lower(j.status) = 'completed' AND j.is_deleted = 0"
+ },
+ "A-busiest_day-0": {
+  "db": "gpuco_A.db",
+  "sql": "SELECT strftime('%Y-%m-%d', j.started_at / 1000, 'unixepoch') d FROM jobs j WHERE strftime('%Y-%m', j.started_at / 1000, 'unixepoch') = '2026-09' AND j.is_deleted = 0 GROUP BY d ORDER BY COUNT(*) DESC LIMIT 1"
+ },
+ "A-tickets_tier-0": {
+  "db": "gpuco_A.db",
+  "sql": "SELECT COUNT(*) FROM support_tickets s JOIN tenants t USING(tenant_id) WHERE t.tier = 'free' AND t.deleted_at IS NULL AND strftime('%Y-%m', s.created_at / 1000, 'unixepoch') = '2026-09'"
+ },
+ "A-avg_duration_gpu-0": {
+  "db": "gpuco_A.db",
+  "sql": "SELECT AVG((j.ended_at - j.started_at) / (60.0 * 1000)) FROM jobs j WHERE CASE j.gpu_model WHEN 'H100' THEN 'H100' WHEN 'h100-sxm5' THEN 'H100' WHEN 'NVIDIA H100 80GB HBM3' THEN 'H100' WHEN 'H200' THEN 'H200' WHEN 'h200-141g' THEN 'H200' WHEN 'B200' THEN 'B200' WHEN 'nvidia-b200' THEN 'B200' WHEN 'A100' THEN 'A100' WHEN 'a100-80gb' THEN 'A100' WHEN 'NVIDIA A100-SXM4-80GB' THEN 'A100' END = 'H200' AND lower(j.status) = 'completed' AND j.is_deleted = 0"
+ },
+ "A-avg_duration_gpu-1": {
+  "db": "gpuco_A.db",
+  "sql": "SELECT AVG((j.ended_at - j.started_at) / (60.0 * 1000)) FROM jobs j WHERE CASE j.gpu_model WHEN 'H100' THEN 'H100' WHEN 'h100-sxm5' THEN 'H100' WHEN 'NVIDIA H100 80GB HBM3' THEN 'H100' WHEN 'H200' THEN 'H200' WHEN 'h200-141g' THEN 'H200' WHEN 'B200' THEN 'B200' WHEN 'nvidia-b200' THEN 'B200' WHEN 'A100' THEN 'A100' WHEN 'a100-80gb' THEN 'A100' WHEN 'NVIDIA A100-SXM4-80GB' THEN 'A100' END = 'H100' AND lower(j.status) = 'completed' AND j.is_deleted = 0"
+ },
+ "A-avg_duration_gpu-2": {
+  "db": "gpuco_A.db",
+  "sql": "SELECT AVG((j.ended_at - j.started_at) / (60.0 * 1000)) FROM jobs j WHERE CASE j.gpu_model WHEN 'H100' THEN 'H100' WHEN 'h100-sxm5' THEN 'H100' WHEN 'NVIDIA H100 80GB HBM3' THEN 'H100' WHEN 'H200' THEN 'H200' WHEN 'h200-141g' THEN 'H200' WHEN 'B200' THEN 'B200' WHEN 'nvidia-b200' THEN 'B200' WHEN 'A100' THEN 'A100' WHEN 'a100-80gb' THEN 'A100' WHEN 'NVIDIA A100-SXM4-80GB' THEN 'A100' END = 'H100' AND lower(j.status) = 'completed' AND j.is_deleted = 0"
+ },
+ "A-spot_share-0": {
+  "db": "gpuco_A.db",
+  "sql": "SELECT 100.0 * SUM(CASE WHEN j.preemptible = 1 THEN j.num_gpus * (j.ended_at - j.started_at) / (3600.0 * 1000) END) / SUM(j.num_gpus * (j.ended_at - j.started_at) / (3600.0 * 1000)) FROM jobs j WHERE strftime('%Y-%m', j.started_at / 1000, 'unixepoch') = '2026-08' AND j.is_deleted = 0"
+ },
+ "A-spot_share-1": {
+  "db": "gpuco_A.db",
+  "sql": "SELECT 100.0 * SUM(CASE WHEN j.preemptible = 1 THEN j.num_gpus * (j.ended_at - j.started_at) / (3600.0 * 1000) END) / SUM(j.num_gpus * (j.ended_at - j.started_at) / (3600.0 * 1000)) FROM jobs j WHERE strftime('%Y-%m', j.started_at / 1000, 'unixepoch') = '2026-08' AND j.is_deleted = 0"
+ },
+ "A-spot_share-2": {
+  "db": "gpuco_A.db",
+  "sql": "SELECT 100.0 * SUM(CASE WHEN j.preemptible = 1 THEN j.num_gpus * (j.ended_at - j.started_at) / (3600.0 * 1000) END) / SUM(j.num_gpus * (j.ended_at - j.started_at) / (3600.0 * 1000)) FROM jobs j WHERE strftime('%Y-%m', j.started_at / 1000, 'unixepoch') = '2026-07' AND j.is_deleted = 0"
+ },
+ "A-unpaid_active-0": {
+  "db": "gpuco_A.db",
+  "sql": "SELECT SUM(i.amount) / 100.0 FROM invoices i JOIN tenants t USING(tenant_id) WHERE i.month = '2026-07' AND lower(i.status) = 'unpaid' AND t.deleted_at IS NULL"
+ },
+ "A-unpaid_active-1": {
+  "db": "gpuco_A.db",
+  "sql": "SELECT SUM(i.amount) / 100.0 FROM invoices i JOIN tenants t USING(tenant_id) WHERE i.month = '2026-07' AND lower(i.status) = 'unpaid' AND t.deleted_at IS NULL"
+ },
+ "A-unpaid_active-2": {
+  "db": "gpuco_A.db",
+  "sql": "SELECT SUM(i.amount) / 100.0 FROM invoices i JOIN tenants t USING(tenant_id) WHERE i.month = '2026-09' AND lower(i.status) = 'unpaid' AND t.deleted_at IS NULL"
+ },
+ "A-gpus_in_region-0": {
+  "db": "gpuco_A.db",
+  "sql": "SELECT SUM(j.gpu_count) FROM nodes j JOIN clusters c USING(cluster_id) WHERE CASE j.gpu_model WHEN 'H100' THEN 'H100' WHEN 'h100-sxm5' THEN 'H100' WHEN 'NVIDIA H100 80GB HBM3' THEN 'H100' WHEN 'H200' THEN 'H200' WHEN 'h200-141g' THEN 'H200' WHEN 'B200' THEN 'B200' WHEN 'nvidia-b200' THEN 'B200' WHEN 'A100' THEN 'A100' WHEN 'a100-80gb' THEN 'A100' WHEN 'NVIDIA A100-SXM4-80GB' THEN 'A100' END = 'A100' AND c.region = 'us-east'"
+ },
+ "A-gpus_in_region-1": {
+  "db": "gpuco_A.db",
+  "sql": "SELECT SUM(j.gpu_count) FROM nodes j JOIN clusters c USING(cluster_id) WHERE CASE j.gpu_model WHEN 'H100' THEN 'H100' WHEN 'h100-sxm5' THEN 'H100' WHEN 'NVIDIA H100 80GB HBM3' THEN 'H100' WHEN 'H200' THEN 'H200' WHEN 'h200-141g' THEN 'H200' WHEN 'B200' THEN 'B200' WHEN 'nvidia-b200' THEN 'B200' WHEN 'A100' THEN 'A100' WHEN 'a100-80gb' THEN 'A100' WHEN 'NVIDIA A100-SXM4-80GB' THEN 'A100' END = 'H100' AND c.region = 'us-east'"
+ },
+ "A-gpus_in_region-2": {
+  "db": "gpuco_A.db",
+  "sql": "SELECT SUM(j.gpu_count) FROM nodes j JOIN clusters c USING(cluster_id) WHERE CASE j.gpu_model WHEN 'H100' THEN 'H100' WHEN 'h100-sxm5' THEN 'H100' WHEN 'NVIDIA H100 80GB HBM3' THEN 'H100' WHEN 'H200' THEN 'H200' WHEN 'h200-141g' THEN 'H200' WHEN 'B200' THEN 'B200' WHEN 'nvidia-b200' THEN 'B200' WHEN 'A100' THEN 'A100' WHEN 'a100-80gb' THEN 'A100' WHEN 'NVIDIA A100-SXM4-80GB' THEN 'A100' END = 'H100' AND c.region = 'eu-north'"
+ },
+ "A-distinct_tenants_gpu-0": {
+  "db": "gpuco_A.db",
+  "sql": "SELECT COUNT(DISTINCT j.tenant_id) FROM jobs j JOIN tenants t USING(tenant_id) WHERE CASE j.gpu_model WHEN 'H100' THEN 'H100' WHEN 'h100-sxm5' THEN 'H100' WHEN 'NVIDIA H100 80GB HBM3' THEN 'H100' WHEN 'H200' THEN 'H200' WHEN 'h200-141g' THEN 'H200' WHEN 'B200' THEN 'B200' WHEN 'nvidia-b200' THEN 'B200' WHEN 'A100' THEN 'A100' WHEN 'a100-80gb' THEN 'A100' WHEN 'NVIDIA A100-SXM4-80GB' THEN 'A100' END = 'A100' AND strftime('%Y-%m', j.started_at / 1000, 'unixepoch') = '2026-07' AND j.is_deleted = 0 AND t.deleted_at IS NULL"
+ },
+ "A-distinct_tenants_gpu-1": {
+  "db": "gpuco_A.db",
+  "sql": "SELECT COUNT(DISTINCT j.tenant_id) FROM jobs j JOIN tenants t USING(tenant_id) WHERE CASE j.gpu_model WHEN 'H100' THEN 'H100' WHEN 'h100-sxm5' THEN 'H100' WHEN 'NVIDIA H100 80GB HBM3' THEN 'H100' WHEN 'H200' THEN 'H200' WHEN 'h200-141g' THEN 'H200' WHEN 'B200' THEN 'B200' WHEN 'nvidia-b200' THEN 'B200' WHEN 'A100' THEN 'A100' WHEN 'a100-80gb' THEN 'A100' WHEN 'NVIDIA A100-SXM4-80GB' THEN 'A100' END = 'H200' AND strftime('%Y-%m', j.started_at / 1000, 'unixepoch') = '2026-07' AND j.is_deleted = 0 AND t.deleted_at IS NULL"
+ },
+ "A-distinct_tenants_gpu-2": {
+  "db": "gpuco_A.db",
+  "sql": "SELECT COUNT(DISTINCT j.tenant_id) FROM jobs j JOIN tenants t USING(tenant_id) WHERE CASE j.gpu_model WHEN 'H100' THEN 'H100' WHEN 'h100-sxm5' THEN 'H100' WHEN 'NVIDIA H100 80GB HBM3' THEN 'H100' WHEN 'H200' THEN 'H200' WHEN 'h200-141g' THEN 'H200' WHEN 'B200' THEN 'B200' WHEN 'nvidia-b200' THEN 'B200' WHEN 'A100' THEN 'A100' WHEN 'a100-80gb' THEN 'A100' WHEN 'NVIDIA A100-SXM4-80GB' THEN 'A100' END = 'H200' AND strftime('%Y-%m', j.started_at / 1000, 'unixepoch') = '2026-08' AND j.is_deleted = 0 AND t.deleted_at IS NULL"
+ },
+ "A-max_job_cost-0": {
+  "db": "gpuco_A.db",
+  "sql": "SELECT MAX(j.num_gpus * (j.ended_at - j.started_at) / (3600.0 * 1000) * g.price_per_gpu_hour * (CASE WHEN j.preemptible = 1 THEN g.spot_multiplier ELSE 1 END)) / 100.0 FROM jobs j JOIN gpu_types g ON g.name = CASE j.gpu_model WHEN 'H100' THEN 'H100' WHEN 'h100-sxm5' THEN 'H100' WHEN 'NVIDIA H100 80GB HBM3' THEN 'H100' WHEN 'H200' THEN 'H200' WHEN 'h200-141g' THEN 'H200' WHEN 'B200' THEN 'B200' WHEN 'nvidia-b200' THEN 'B200' WHEN 'A100' THEN 'A100' WHEN 'a100-80gb' THEN 'A100' WHEN 'NVIDIA A100-SXM4-80GB' THEN 'A100' END WHERE strftime('%Y-%m', j.started_at / 1000, 'unixepoch') = '2026-08' AND lower(j.status) = 'completed' AND j.is_deleted = 0"
+ },
+ "A-max_job_cost-1": {
+  "db": "gpuco_A.db",
+  "sql": "SELECT MAX(j.num_gpus * (j.ended_at - j.started_at) / (3600.0 * 1000) * g.price_per_gpu_hour * (CASE WHEN j.preemptible = 1 THEN g.spot_multiplier ELSE 1 END)) / 100.0 FROM jobs j JOIN gpu_types g ON g.name = CASE j.gpu_model WHEN 'H100' THEN 'H100' WHEN 'h100-sxm5' THEN 'H100' WHEN 'NVIDIA H100 80GB HBM3' THEN 'H100' WHEN 'H200' THEN 'H200' WHEN 'h200-141g' THEN 'H200' WHEN 'B200' THEN 'B200' WHEN 'nvidia-b200' THEN 'B200' WHEN 'A100' THEN 'A100' WHEN 'a100-80gb' THEN 'A100' WHEN 'NVIDIA A100-SXM4-80GB' THEN 'A100' END WHERE strftime('%Y-%m', j.started_at / 1000, 'unixepoch') = '2026-07' AND lower(j.status) = 'completed' AND j.is_deleted = 0"
+ },
+ "A-max_job_cost-2": {
+  "db": "gpuco_A.db",
+  "sql": "SELECT MAX(j.num_gpus * (j.ended_at - j.started_at) / (3600.0 * 1000) * g.price_per_gpu_hour * (CASE WHEN j.preemptible = 1 THEN g.spot_multiplier ELSE 1 END)) / 100.0 FROM jobs j JOIN gpu_types g ON g.name = CASE j.gpu_model WHEN 'H100' THEN 'H100' WHEN 'h100-sxm5' THEN 'H100' WHEN 'NVIDIA H100 80GB HBM3' THEN 'H100' WHEN 'H200' THEN 'H200' WHEN 'h200-141g' THEN 'H200' WHEN 'B200' THEN 'B200' WHEN 'nvidia-b200' THEN 'B200' WHEN 'A100' THEN 'A100' WHEN 'a100-80gb' THEN 'A100' WHEN 'NVIDIA A100-SXM4-80GB' THEN 'A100' END WHERE strftime('%Y-%m', j.started_at / 1000, 'unixepoch') = '2026-09' AND lower(j.status) = 'completed' AND j.is_deleted = 0"
+ },
+ "A-top_tenant_usage-0": {
+  "db": "gpuco_A.db",
+  "sql": "SELECT t.name FROM usage_hourly u JOIN tenants t USING(tenant_id) WHERE strftime('%Y-%m', u.hour_start / 1000, 'unixepoch') = '2026-07' AND t.deleted_at IS NULL GROUP BY t.tenant_id ORDER BY SUM(u.gpu_hours) DESC LIMIT 1"
+ },
+ "A-top_tenant_usage-1": {
+  "db": "gpuco_A.db",
+  "sql": "SELECT t.name FROM usage_hourly u JOIN tenants t USING(tenant_id) WHERE strftime('%Y-%m', u.hour_start / 1000, 'unixepoch') = '2026-09' AND t.deleted_at IS NULL GROUP BY t.tenant_id ORDER BY SUM(u.gpu_hours) DESC LIMIT 1"
+ },
+ "A-top_tenant_usage-2": {
+  "db": "gpuco_A.db",
+  "sql": "SELECT t.name FROM usage_hourly u JOIN tenants t USING(tenant_id) WHERE strftime('%Y-%m', u.hour_start / 1000, 'unixepoch') = '2026-08' AND t.deleted_at IS NULL GROUP BY t.tenant_id ORDER BY SUM(u.gpu_hours) DESC LIMIT 1"
+ },
+ "A-running_jobs_tier-0": {
+  "db": "gpuco_A.db",
+  "sql": "SELECT COUNT(*) FROM jobs j JOIN tenants t USING(tenant_id) WHERE lower(j.status) = 'running' AND j.is_deleted = 0 AND t.deleted_at IS NULL AND t.tier = 'enterprise'"
+ },
+ "A-running_jobs_tier-1": {
+  "db": "gpuco_A.db",
+  "sql": "SELECT COUNT(*) FROM jobs j JOIN tenants t USING(tenant_id) WHERE lower(j.status) = 'running' AND j.is_deleted = 0 AND t.deleted_at IS NULL AND t.tier = 'enterprise'"
+ },
+ "A-running_jobs_tier-2": {
+  "db": "gpuco_A.db",
+  "sql": "SELECT COUNT(*) FROM jobs j JOIN tenants t USING(tenant_id) WHERE lower(j.status) = 'running' AND j.is_deleted = 0 AND t.deleted_at IS NULL AND t.tier = 'free'"
+ },
+ "B-revenue_month-0": {
+  "db": "gpuco_B.db",
+  "sql": "SELECT SUM(amount) / 1000.0 FROM invoices WHERE month = '2026-07' AND lower(status) != 'void'"
+ },
+ "B-revenue_month-1": {
+  "db": "gpuco_B.db",
+  "sql": "SELECT SUM(amount) / 1000.0 FROM invoices WHERE month = '2026-09' AND lower(status) != 'void'"
+ },
+ "B-active_tenants_tier-0": {
+  "db": "gpuco_B.db",
+  "sql": "SELECT COUNT(*) FROM tenants t WHERE tier = 'enterprise' AND t.is_active = 1"
+ },
+ "B-active_tenants_tier-1": {
+  "db": "gpuco_B.db",
+  "sql": "SELECT COUNT(*) FROM tenants t WHERE tier = 'enterprise' AND t.is_active = 1"
+ },
+ "B-avg_duration_gpu-0": {
+  "db": "gpuco_B.db",
+  "sql": "SELECT AVG((j.ended_at - j.started_at) / (60.0 * 1)) FROM jobs j WHERE CASE j.gpu_model WHEN 'H100-80G' THEN 'H100' WHEN 'hopper-100' THEN 'H100' WHEN 'H200-141G' THEN 'H200' WHEN 'hopper-200' THEN 'H200' WHEN 'B200-192G' THEN 'B200' WHEN 'blackwell-200' THEN 'B200' WHEN 'A100-80G' THEN 'A100' WHEN 'ampere-100' THEN 'A100' END = 'A100' AND lower(j.status) = 'completed' AND j.is_deleted = 0"
+ },
+ "B-avg_duration_gpu-1": {
+  "db": "gpuco_B.db",
+  "sql": "SELECT AVG((j.ended_at - j.started_at) / (60.0 * 1)) FROM jobs j WHERE CASE j.gpu_model WHEN 'H100-80G' THEN 'H100' WHEN 'hopper-100' THEN 'H100' WHEN 'H200-141G' THEN 'H200' WHEN 'hopper-200' THEN 'H200' WHEN 'B200-192G' THEN 'B200' WHEN 'blackwell-200' THEN 'B200' WHEN 'A100-80G' THEN 'A100' WHEN 'ampere-100' THEN 'A100' END = 'A100' AND lower(j.status) = 'completed' AND j.is_deleted = 0"
+ },
+ "B-spot_share-0": {
+  "db": "gpuco_B.db",
+  "sql": "SELECT 100.0 * SUM(CASE WHEN j.preemptible = 1 THEN j.num_gpus * (j.ended_at - j.started_at) / (3600.0 * 1) END) / SUM(j.num_gpus * (j.ended_at - j.started_at) / (3600.0 * 1)) FROM jobs j WHERE strftime('%Y-%m', j.started_at / 1, 'unixepoch') = '2026-08' AND j.is_deleted = 0"
+ },
+ "B-spot_share-1": {
+  "db": "gpuco_B.db",
+  "sql": "SELECT 100.0 * SUM(CASE WHEN j.preemptible = 1 THEN j.num_gpus * (j.ended_at - j.started_at) / (3600.0 * 1) END) / SUM(j.num_gpus * (j.ended_at - j.started_at) / (3600.0 * 1)) FROM jobs j WHERE strftime('%Y-%m', j.started_at / 1, 'unixepoch') = '2026-07' AND j.is_deleted = 0"
+ },
+ "B-distinct_tenants_gpu-0": {
+  "db": "gpuco_B.db",
+  "sql": "SELECT COUNT(DISTINCT j.tenant_id) FROM jobs j JOIN tenants t USING(tenant_id) WHERE CASE j.gpu_model WHEN 'H100-80G' THEN 'H100' WHEN 'hopper-100' THEN 'H100' WHEN 'H200-141G' THEN 'H200' WHEN 'hopper-200' THEN 'H200' WHEN 'B200-192G' THEN 'B200' WHEN 'blackwell-200' THEN 'B200' WHEN 'A100-80G' THEN 'A100' WHEN 'ampere-100' THEN 'A100' END = 'A100' AND strftime('%Y-%m', j.started_at / 1, 'unixepoch') = '2026-09' AND j.is_deleted = 0 AND t.is_active = 1"
+ },
+ "B-distinct_tenants_gpu-1": {
+  "db": "gpuco_B.db",
+  "sql": "SELECT COUNT(DISTINCT j.tenant_id) FROM jobs j JOIN tenants t USING(tenant_id) WHERE CASE j.gpu_model WHEN 'H100-80G' THEN 'H100' WHEN 'hopper-100' THEN 'H100' WHEN 'H200-141G' THEN 'H200' WHEN 'hopper-200' THEN 'H200' WHEN 'B200-192G' THEN 'B200' WHEN 'blackwell-200' THEN 'B200' WHEN 'A100-80G' THEN 'A100' WHEN 'ampere-100' THEN 'A100' END = 'H100' AND strftime('%Y-%m', j.started_at / 1, 'unixepoch') = '2026-08' AND j.is_deleted = 0 AND t.is_active = 1"
+ },
+ "B-max_job_cost-0": {
+  "db": "gpuco_B.db",
+  "sql": "SELECT MAX(j.num_gpus * (j.ended_at - j.started_at) / (3600.0 * 1) * g.price_per_gpu_hour * (CASE WHEN j.preemptible = 1 THEN g.spot_multiplier ELSE 1 END)) / 1000.0 FROM jobs j JOIN gpu_types g ON g.name = CASE j.gpu_model WHEN 'H100-80G' THEN 'H100' WHEN 'hopper-100' THEN 'H100' WHEN 'H200-141G' THEN 'H200' WHEN 'hopper-200' THEN 'H200' WHEN 'B200-192G' THEN 'B200' WHEN 'blackwell-200' THEN 'B200' WHEN 'A100-80G' THEN 'A100' WHEN 'ampere-100' THEN 'A100' END WHERE strftime('%Y-%m', j.started_at / 1, 'unixepoch') = '2026-08' AND lower(j.status) = 'completed' AND j.is_deleted = 0"
+ },
+ "B-max_job_cost-1": {
+  "db": "gpuco_B.db",
+  "sql": "SELECT MAX(j.num_gpus * (j.ended_at - j.started_at) / (3600.0 * 1) * g.price_per_gpu_hour * (CASE WHEN j.preemptible = 1 THEN g.spot_multiplier ELSE 1 END)) / 1000.0 FROM jobs j JOIN gpu_types g ON g.name = CASE j.gpu_model WHEN 'H100-80G' THEN 'H100' WHEN 'hopper-100' THEN 'H100' WHEN 'H200-141G' THEN 'H200' WHEN 'hopper-200' THEN 'H200' WHEN 'B200-192G' THEN 'B200' WHEN 'blackwell-200' THEN 'B200' WHEN 'A100-80G' THEN 'A100' WHEN 'ampere-100' THEN 'A100' END WHERE strftime('%Y-%m', j.started_at / 1, 'unixepoch') = '2026-09' AND lower(j.status) = 'completed' AND j.is_deleted = 0"
+ }
+}

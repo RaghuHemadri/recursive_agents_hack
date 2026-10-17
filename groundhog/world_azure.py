@@ -170,7 +170,7 @@ class Browser:
         text = "\n".join(f"[{i}] {e['tag']}{'/' + e['role'] if e['role'] else ''}{' (editable)' if e['editable'] else ''}"
                          f"{' type=' + e['type'] if e['type'] else ''} {e['label']!r}" for i, e in enumerate(self.marks))
         self.obs = dict(url=page.url, title=page.title(), elements=text or "(no interactive elements found)",
-                        b64=base64.b64encode(buf.getvalue()).decode(), step=self.step)
+                        b64=base64.b64encode(buf.getvalue()).decode(), step=self.step, ts=time.time())
         return self.obs
 
     def visible_text(self, limit: int = 6000) -> str:
@@ -328,7 +328,7 @@ def reset(task: dict) -> None:
     def go():
         if not BROWSER.page.url.startswith(HOME):
             BROWSER.page.goto(HOME, timeout=45_000)
-        for _ in range(20):  # the portal bounces through /auth/login before landing on #home when already signed in
+        for _ in range(60):  # the portal bounces through /auth/login before landing on #home when already signed in
             if "#home" in BROWSER.page.url or "login.microsoftonline" in BROWSER.page.url:
                 break
             time.sleep(1)
@@ -343,7 +343,12 @@ def final_state() -> dict:
 
 
 def observation() -> dict | None:
-    return BROWSER.obs if BROWSER.thread else None
+    """Latest screen; re-captured if older than 10 s so no agent plans from a stale screenshot."""
+    if not BROWSER.thread:
+        return None
+    if not BROWSER.obs or time.time() - BROWSER.obs.get("ts", 0) > 10:
+        BROWSER.run(BROWSER.observe)
+    return BROWSER.obs
 
 
 # ---- tasks: read-only portal navigation, graded on the final URL; split by task ----

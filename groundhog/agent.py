@@ -375,6 +375,9 @@ class Team:
         except (APIStatusError, APITimeoutError, APIConnectionError) as e:
             st["trace"].append(dict(step=len(st["trace"]), role="lead", kind="guard", text=f"provider error: {e}"[:200]))
         answer = st["answer"]
+        if answer is None and str(st["verifier_answer"] or "").lower().startswith("done"):
+            answer = "done"  # the lead ended without calling submit, but a verifier confirmed the task is done
+            st["trace"].append(dict(step=len(st["trace"]), role="lead", kind="guard", text="auto-submit: verifier confirmed done"))
         res = dict(task_id=task["id"], template=task["template"],
                    answer=answer if answer and answer.lower() != "unsolved" else None, tokens=st["tokens"],
                    cost=round(st["cost"], 5), cached=st["cached"], calls=st["calls"], explore=st["explore"],
