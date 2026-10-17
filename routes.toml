@@ -1,0 +1,18 @@
+# NeMo Switchyard config (for when switchyard-server is built; Groundhog's Python router mirrors this `auto` route
+# and picks capable/efficient per job from frozen/benchmarks.yaml + harness/vN/routing.yaml).
+schema_version = 1
+[llm_clients.crusoe]
+format = "openai_chat"
+base_url = "https://api.inference.crusoecloud.com/v1"
+api_key_env = "CRUSOE_API_KEY"
+[targets.capable]
+id = "deepseek-ai/Deepseek-V4-Flash"
+llm_client = "crusoe"
+[targets.efficient]
+id = "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+llm_client = "crusoe"
+[routes.smart]
+id = "switchyard"
+type = "auto"
+capable_target = "capable"
+efficient_target = "efficient"

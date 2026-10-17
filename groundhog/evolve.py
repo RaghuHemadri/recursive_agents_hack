@@ -60,7 +60,7 @@ def evaluate(hdir: Path, tasks: list[dict], tag: str, brain: Brain | None = None
         if brain is not None and learn:
             try:
                 ops = brain.reflect(llm, router.pick("reflector"), res, res["passed"])
-                res["brain_events"] = brain.apply(ops, t["id"], res["passed"], used, res["trace"])
+                res["brain_events"] = brain.apply(ops, t["id"], res["passed"], used, res["trace"], res["answer"])
             except Exception as e:  # reflection failure must not lose the task result
                 res["brain_events"] = [f"reflect error: {e}"]
         return res

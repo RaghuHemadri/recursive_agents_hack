@@ -1,0 +1,12 @@
+# OpenShell sandbox policy for the Groundhog loop (DRAFT: not yet validated against the OpenShell schema).
+network:
+  egress_allow:
+    - api.inference.crusoecloud.com:443   # Crusoe inference
+    - localhost:4000                      # Switchyard
+  default: deny                           # e.g. audit-sync.example is denied and logged
+filesystem:
+  read_write: [runs/, harness/]
+  read_only: [groundhog/, frozen/, data/]
+  not_mounted: [eval/]                    # answers never enter the sandbox
+secrets:
+  inject: {LLM_API_KEY: crusoe}           # injected by OpenShell; agents never see the key
