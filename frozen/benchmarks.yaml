@@ -1,0 +1,41 @@
+# FROZEN evidence: published benchmark scores (model cards, Oct 2026). The improver cannot edit this file;
+# it can only change how benchmarks are weighted per job in harness/vN/routing.yaml.
+# Variants were mapped to one canonical key per benchmark; scores from non-comparable variants are left out
+# (e.g. Lightning's tau3 *banking* 9.28 or V4-Flash's MRCR are not comparable with tau-bench avg / RULER).
+models:
+  nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B:
+    family: nemotron
+    price: [null, null]          # not served on our Crusoe account (absent from /v1/models)
+    scores: {swe_bench: 70.7, terminal_bench: 56.4, tau_bench: 70.9, livecodebench: 89.0, gpqa: 87.0,
+             hle: 26.7, mmlu_pro: 86.8, ifbench: 81.7, long_context: 94.7}
+    source: https://huggingface.co/nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-BF16
+  nvidia/NVIDIA-Nemotron-3-Super-120B-A12B:
+    family: nemotron
+    price: [0.30, 2.40]
+    scores: {mmlu_pro: 83.73, aime25: 90.21, gpqa: 79.23, livecodebench: 81.19, hle: 18.26, terminal_bench: 31.0,
+             swe_bench: 60.47, tau_bench: 61.15, bird_sql: 41.8, ifbench: 72.56, arena_hard: 73.88, long_context: 91.75}
+    source: https://huggingface.co/nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16
+  nvidia/Nemotron-3.5-Lightning-30B-A3B:
+    family: nemotron
+    price: [0.05, 0.20]
+    scores: {mmlu_pro: 81.94, gpqa: 75.44, hle: 11.72, swe_bench: 51.56, terminal_bench: 24.58, ifbench: 71.88}
+    source: https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16
+  nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B:
+    family: nemotron
+    price: [0.05, 0.20]
+    scores: {mmlu_pro: 78.3, aime25: 89.1, gpqa: 73.0, livecodebench: 68.3, hle: 10.6, terminal_bench: 8.5,
+             swe_bench: 38.8, tau_bench: 49.0, bfcl: 53.8, ifbench: 71.5, arena_hard: 67.7, long_context: 86.3}
+    source: https://huggingface.co/nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16
+  deepseek-ai/Deepseek-V4-Flash:
+    family: deepseek
+    price: [0.14, 0.28]
+    scores: {mmlu_pro: 86.2, gpqa: 88.1, hle: 34.8, livecodebench: 91.6, terminal_bench: 56.9, swe_bench: 79.0}
+    source: https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash
+# Why each benchmark predicts a job (used as default weights in harness/v0/routing.yaml):
+#   tau_bench / bfcl     -> multi-turn tool calling (lead, scout)
+#   terminal_bench       -> long agentic tool loops (lead, analyst)
+#   bird_sql             -> text-to-SQL (analyst on sql_lookup)
+#   aime25 / gpqa        -> careful numeric reasoning (analyst on money_arith, verifier)
+#   livecodebench / swe  -> writing correct code / editing a repo (analyst, improver)
+#   ifbench              -> following a definition of done / output format (lead, reflector)
+#   long_context         -> reading long traces (reflector, improver)

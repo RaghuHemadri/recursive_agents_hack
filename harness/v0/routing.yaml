@@ -1,0 +1,18 @@
+# EDITABLE by the improver. Which published benchmarks predict success at each job (weights), how much to
+# trade quality for price, and when to escalate. Scores themselves are frozen in frozen/benchmarks.yaml.
+jobs:
+  planning:          {tau_bench: 0.4, terminal_bench: 0.3, ifbench: 0.3}       # lead: delegate + definition of done
+  tool_exploration:  {bfcl: 0.5, tau_bench: 0.3, ifbench: 0.2}                # scout: many fast schema/sample calls
+  sql_lookup:        {bird_sql: 0.5, livecodebench: 0.3, terminal_bench: 0.2} # analyst on count/lookup questions
+  money_arith:       {aime25: 0.35, gpqa: 0.25, bird_sql: 0.25, livecodebench: 0.15}  # analyst on $, %, durations
+  verification:      {gpqa: 0.4, mmlu_pro: 0.2, livecodebench: 0.2, hle: 0.2} # verifier: independent re-derivation
+  reflection:        {long_context: 0.5, ifbench: 0.5}                         # reflector: read traces, write lessons
+  harness_editing:   {swe_bench: 0.5, terminal_bench: 0.3, long_context: 0.2}  # improver: patch harness files
+roles: {lead: planning, scout: tool_exploration, analyst: task, verifier: verification,
+        reflector: reflection, improver: harness_editing}
+cost_weight: {default: 0.15, tool_exploration: 0.3, reflection: 0.4, harness_editing: 0.05}
+prior_strength: 4          # benchmark prior counts as this many observed tasks
+verifier_other_family: true  # verifier must come from a different model family than the analyst
+escalation: {after_tool_errors: 2, after_repeated_calls: 2}
+pins: {}
+exclude: []
