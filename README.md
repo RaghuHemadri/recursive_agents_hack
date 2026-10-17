@@ -112,7 +112,7 @@ DB-B: money in mills, epoch seconds, `jobs_legacy`, `is_active` flag, different 
 ## Run
 
 ```bash
-python3 -m venv --system-site-packages .venv && .venv/bin/pip install deepagents langchain-openai rapidfuzz streamlit pytest "numpy>=2"
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt && .venv/bin/playwright install chromium
 echo "LLM_API_KEY=..." > .env                      # Crusoe key
 .venv/bin/python -m groundhog.world                 # build DBs + tasks + answers
 .venv/bin/python -m pytest -q tests                 # self-checks (no API calls except none)
