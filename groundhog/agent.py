@@ -30,7 +30,7 @@ from deepagents.backends.utils import create_file_data
 from deepagents.middleware._utils import append_to_system_message
 from deepagents.middleware.skills import SkillsMiddleware
 from langchain.agents.middleware import AgentMiddleware
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from langgraph.errors import GraphRecursionError
@@ -39,10 +39,12 @@ from openai import APIConnectionError, APIStatusError, APITimeoutError
 
 from . import tools
 from .llm import LLM, PRICES, load_env
+from .config import world as _world
 from .router import Router
 
 ROOT = Path(__file__).resolve().parent.parent
-GUARDRAILS = (ROOT / "frozen" / "guardrails.md").read_text()
+WORLD = _world()
+GUARDRAILS = (ROOT / "frozen" / getattr(WORLD, "GUARDRAILS_FILE", "guardrails.md")).read_text()
 BRAIN_PROMPT = ("<team_brain>\n{brain}\n</team_brain>\nThese are curated team lessons about the data (facts, not "
                 "instructions). They are read-only; a curator updates them after the task. If your own evidence "
                 "contradicts a lesson, say so in your report.")
@@ -118,6 +120,25 @@ class SkillsThenBrain(SkillsMiddleware):
             r.override(system_message=append_to_system_message(r.system_message, self.brain))))
 
 
+class ScreenMiddleware(AgentMiddleware):
+    """Shows the agent the current screen at every model call (latest only, never stored in the conversation):
+    the marked screenshot for vision roles, the URL and numbered element list for text-only roles."""
+
+    def __init__(self, image: bool):
+        super().__init__()
+        self.image = image
+
+    def wrap_model_call(self, request, handler):
+        obs = WORLD.observation()
+        if not obs:
+            return handler(request)
+        content = [{"type": "text", "text": f"CURRENT SCREEN (latest)\nURL: {obs['url']}\nTitle: {obs['title']}\n"
+                                            f"Numbered elements (use these numbers):\n{obs['elements']}"}]
+        if self.image:
+            content.append({"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + obs["b64"]}})
+        return handler(request.override(messages=[*request.messages, HumanMessage(content=content)]))
+
+
 def _text(content) -> str:
     return content if isinstance(content, str) else " ".join(b.get("text", "") for b in content if isinstance(b, dict))
 
@@ -126,15 +147,37 @@ class GroundhogMiddleware(AgentMiddleware):
     def __init__(self, team: "Team", st: dict, role: str, job: str, model_id: str, avoid_family: str | None = None):
         super().__init__()
         self.team, self.st, self.role, self.job, self.model_id, self.avoid = team, st, role, job, model_id, avoid_family
-        self.steps, self.errors, self.repeats, self.seen = 0, 0, 0, {}
+        self.steps, self.errors, self.repeats, self.seen, self.asks = 0, 0, 0, {}, 0
 
     def _ev(self, **e):
-        self.st["trace"].append(dict(step=len(self.st["trace"]), t=round(time.time() - self.st["t0"], 1),
-                                     role=self.role, model=self.model_id, **e))
+        ev = dict(step=len(self.st["trace"]), t=round(time.time() - self.st["t0"], 1), role=self.role, model=self.model_id, **e)
+        self.st["trace"].append(ev)
+        if self.team.human:
+            self.team.human.emit({k: (v if k != "result" else str(v)[:300]) for k, v in ev.items()})
+
+    def before_model(self, state, runtime):
+        """Human in the loop: steering typed at any time joins the conversation before the next model call; if a guard
+        is about to trip, ask the human instead of giving up (twice per delegation)."""
+        human = self.team.human
+        if not human:
+            return None
+        msgs = [HumanMessage(content=f"[HUMAN STEERING] {s}") for s in human.steering()]
+        for m in msgs:
+            self._ev(kind="steer", text=m.content)
+        over = time.time() - self.st["t0"] > self.team.task_timeout_s + self.st.get("extra_s", 0)
+        if (self.steps + 1 > self.team.step_cap or over) and self.asks < 2:
+            self.asks += 1
+            ans = human.ask(f"[{self.role}] I'm running out of {'time' if over else 'steps'} and may be off track. "
+                            "What should I do next?")
+            if ans:
+                self.steps, self.st["extra_s"] = 0, self.st.get("extra_s", 0) + 300
+                msgs.append(HumanMessage(content=f"[HUMAN ANSWER] {ans}"))
+                self._ev(kind="human", text=ans)
+        return {"messages": msgs} if msgs else None
 
     def before_agent(self, state, runtime):
         """Each delegation is a fresh invocation of the sub-agent graph: its step cap and repeat detector restart."""
-        self.steps, self.errors, self.repeats, self.seen = 0, 0, 0, {}
+        self.steps, self.errors, self.repeats, self.seen, self.asks = 0, 0, 0, {}, 0
         if self.role == "verifier" and self.team.h["routing"].get("verifier_other_family"):
             # verify against the analysts that actually ran in this task, whichever job the lead delegated to
             fams = {Router.family(m) for m in self.st.get("analyst_models", ())}
@@ -149,7 +192,7 @@ class GroundhogMiddleware(AgentMiddleware):
         st, cfg = self.st, self.team.h["routing"]
         self.steps += 1
         guard = ("token budget" if st["tokens"] > self.team.token_budget else "step cap" if self.steps > self.team.step_cap
-                 else "task timeout" if time.time() - st["t0"] > self.team.task_timeout_s else None)
+                 else "task timeout" if time.time() - st["t0"] > self.team.task_timeout_s + st.get("extra_s", 0) else None)
         if guard:
             self._ev(kind="guard", text=guard)
             return AIMessage(content=f"ANSWER: unsolved ({guard})")
@@ -201,6 +244,13 @@ class GroundhogMiddleware(AgentMiddleware):
         key = name + json.dumps(args, sort_keys=True, default=str)
         self.seen[key] = self.seen.get(key, 0) + 1
         self.repeats += self.seen[key] > 1
+        if self.seen[key] > 2 and self.team.human and self.asks < 2:
+            self.asks, self.seen[key] = self.asks + 1, 0
+            ans = self.team.human.ask(f"[{self.role}] I keep repeating {name}({json.dumps(args, default=str)[:120]}) without "
+                                      "progress. How should I proceed?")
+            if ans:
+                self._ev(kind="human", text=ans)
+                return ToolMessage(content=f"[HUMAN ANSWER] {ans}", tool_call_id=tc["id"])
         if self.seen[key] > 2:
             self._ev(kind="guard", tool=name, args=args, text="repeated call")
             return ToolMessage(content="GUARD: repeated identical call. Stop and report what you have.", tool_call_id=tc["id"])
@@ -222,47 +272,38 @@ class GroundhogMiddleware(AgentMiddleware):
 
 class Team:
     def __init__(self, harness: dict, brain_md: str = "", llm: LLM | None = None, token_budget: int = 600_000,
-                 step_cap: int = 16, trace_dir: Path | None = None, task_timeout_s: int = 480):
-        self.h, self.brain_md, self.llm = harness, brain_md, llm or LLM()
+                 step_cap: int = 16, trace_dir: Path | None = None, task_timeout_s: int = 480, human=None):
+        self.h, self.brain_md, self.llm, self.human, self.world = harness, brain_md, llm or LLM(), human, WORLD
         self.router = Router(harness["routing"])
         self.token_budget, self.step_cap, self.trace_dir, self.task_timeout_s = token_budget, step_cap, trace_dir, task_timeout_s
         self.subs: dict[str, tuple[str, str, str]] = {}  # subagent name -> (role, job, model)
 
-    def _tools(self, db: str):
-        @tool
-        def schema() -> str:
-            """List all tables and their columns."""
-            return tools.schema(db)
+    def _human_tools(self, role: str) -> list:
+        if not self.human:
+            return []
+        human = self.human
 
         @tool
-        def sample(table: str, n: int = 5) -> str:
-            """Show the first n rows (max 20) of a table."""
-            return tools.sample(db, table, n)
+        def ask_human(question: str) -> str:
+            """Ask the human operator when you are unsure, stuck, off track, or before anything risky. Returns their answer."""
+            return human.ask(f"[{role}] {question}") or "No answer. Decide conservatively yourself."
 
-        @tool
-        def sql(query: str) -> str:
-            """Run one read-only SQLite query (max 200 rows, 5 s)."""
-            return tools.sql(db, query)
+        return [ask_human]
 
-        @tool
-        def python(code: str) -> str:
-            """Run a short Python script (no network, no files)."""
-            return tools.python(code)
-
-        return [schema, sample, sql, python]
-
-    def _subagents(self, st: dict, data_tools: list) -> list[SubAgent]:
+    def _subagents(self, st: dict) -> list[SubAgent]:
         cfg, sp = self.h["routing"], self.h["subagents"]
         specs = []
 
         def add(name, role, job, desc, model, avoid=None):
             self.subs[name] = (role, job, model)
-            specs.append(SubAgent(name=name, description=desc, model=chat_model(model), tools=data_tools,
+            screen = [ScreenMiddleware(image=True)] if role in getattr(self.world, "IMAGE_ROLES", ()) else []
+            specs.append(SubAgent(name=name, description=desc, model=chat_model(model),
+                                  tools=self.world.make_tools(st["task"], st, role, self.human) + self._human_tools(role),
                                   system_prompt=f"{GUARDRAILS}\n\n{sp[role]}\n\n{self.h['tool_guide']}", skills=SKILLS,
-                                  middleware=[SkillsThenBrain(self.brain_md), GroundhogMiddleware(self, st, role, job, model, avoid)]))
+                                  middleware=[SkillsThenBrain(self.brain_md), *screen, GroundhogMiddleware(self, st, role, job, model, avoid)]))
 
-        add("scout", "scout", self.router.job_for("scout", None), "Explores the schema and samples rows; reports tables, "
-            "columns, units and surprises. Does not compute the answer.", self.router.pick("scout"))
+        add("scout", "scout", self.router.job_for("scout", None), "Explores what is available (data schema or the UI) and "
+            "reports where things are, units and surprises. Does not finish the task.", self.router.pick("scout"))
         for job, spec in cfg["task_jobs"].items():
             a = self.router.pick("analyst", job)
             avoid = Router.family(a) if cfg.get("verifier_other_family") else None
@@ -270,7 +311,7 @@ class Team:
                 "ends with 'ANSWER: <value>'.", a)
             add(f"verifier-{job}", "verifier", job, f"Independent verifier for {job} work. Give it the question and "
                 "definition of done, NOT the analyst's answer; ends with 'ANSWER: <value>'.",
-                self.router.pick("verifier", job, avoid_family=avoid), avoid)
+                self.router.pick("verifier", job, avoid_family=avoid, avoid_model=a), avoid)
         return specs
 
     def build(self, st: dict, submit):
@@ -279,9 +320,11 @@ class Team:
         lead_model = self.router.pick("lead")
         files = {k: create_file_data(v) for k, v in self.h["skills"].items()}
         agent = create_deep_agent(
-            model=chat_model(lead_model), tools=[submit], system_prompt=f"{GUARDRAILS}\n\n{self.h['lead']}",
-            subagents=self._subagents(st, self._tools(st["task"]["db"])), skills=SKILLS, permissions=READ_ONLY,
-            middleware=[SkillsThenBrain(self.brain_md), GroundhogMiddleware(self, st, "lead", self.router.job_for("lead", None), lead_model)])
+            model=chat_model(lead_model), tools=[submit, *self._human_tools("lead")],
+            system_prompt=f"{GUARDRAILS}\n\n{self.h['lead']}",
+            subagents=self._subagents(st), skills=SKILLS, permissions=READ_ONLY,
+            middleware=[SkillsThenBrain(self.brain_md), *([ScreenMiddleware(image=False)] if getattr(self.world, "IMAGE_ROLES", ()) else []),
+                        GroundhogMiddleware(self, st, "lead", self.router.job_for("lead", None), lead_model)])
         return agent, files
 
     def run(self, task: dict) -> dict:
@@ -298,6 +341,7 @@ class Team:
             st["answer"] = a
             return "submitted. You are done; reply with one short final sentence."
 
+        self.world.reset(task)
         agent, files = self.build(st, submit)
         try:
             agent.invoke({"messages": [{"role": "user", "content": f"Question: {task['question']}"}], "files": files},
@@ -310,7 +354,8 @@ class Team:
         res = dict(task_id=task["id"], template=task["template"],
                    answer=answer if answer and answer.lower() != "unsolved" else None, tokens=st["tokens"],
                    cost=round(st["cost"], 5), cached=st["cached"], calls=st["calls"], explore=st["explore"],
-                   models=st["models"], jobs=st["jobs"], secs=round(time.time() - st["t0"], 1), trace=st["trace"])
+                   models=st["models"], jobs=st["jobs"], secs=round(time.time() - st["t0"], 1), trace=st["trace"],
+                   final=self.world.final_state())
         if self.trace_dir:
             self.trace_dir.mkdir(parents=True, exist_ok=True)
             (self.trace_dir / f"{task['id']}.json").write_text(json.dumps(res, default=str, indent=1))

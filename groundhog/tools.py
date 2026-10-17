@@ -11,6 +11,7 @@ import sys
 import tempfile
 import time
 
+from .config import RUNS
 from .world import DATA
 
 ROW_CAP, SQL_TIMEOUT_S, PY_TIMEOUT_S = 200, 5, 20
@@ -18,7 +19,7 @@ SANDBOX_IMAGE = "python:3.12-slim"
 DOCKER = shutil.which("docker") and os.environ.get("GROUNDHOG_SANDBOX", "docker") == "docker"
 EGRESS = re.compile(r"https?://|socket|urllib|requests|http\.client|smtplib|ftplib", re.I)
 PROTECTED = re.compile(r"answers\.json|/eval\b|world\.py|guardrails|\.env\b|LLM_API_KEY", re.I)
-DENIALS = DATA.parent / "runs" / "denials.jsonl"
+DENIALS = RUNS / "denials.jsonl"
 
 
 def _deny(kind: str, detail: str) -> str:

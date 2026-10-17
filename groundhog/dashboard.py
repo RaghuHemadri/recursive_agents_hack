@@ -1,5 +1,6 @@
 """Groundhog dashboard: streamlit run groundhog/dashboard.py"""
 import json
+import sys
 import sqlite3
 import time
 from pathlib import Path
@@ -9,7 +10,8 @@ import streamlit as st
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
-RUNS = ROOT / "runs"
+sys.path.insert(0, str(ROOT))
+from groundhog.config import HARNESS, RUNS  # noqa: E402
 
 
 def jl(name):
@@ -21,7 +23,7 @@ st.set_page_config("Groundhog", layout="wide")
 routing, evals, archive, denials = jl("routing.jsonl"), jl("evals.jsonl"), jl("archive.jsonl"), jl("denials.jsonl")
 started = float((RUNS / "started_at").read_text()) if (RUNS / "started_at").exists() else time.time()
 interventions = len((RUNS / "interventions.log").read_text().splitlines()) if (RUNS / "interventions.log").exists() else 0
-version = max((int(p.name[1:]) for p in (ROOT / "harness").glob("v*") if p.name[1:].isdigit()), default=0)
+version = max((int(p.name[1:]) for p in HARNESS.glob("v*") if p.name[1:].isdigit()), default=0)
 spent = sum(r.get("cost", 0) for r in routing)
 st.title("Groundhog")
 st.markdown(f"**unattended since {time.strftime('%H:%M', time.localtime(started))} · interventions {interventions} · "
@@ -99,4 +101,4 @@ if attacks:
         st.json(a, expanded=False)
 
 st.subheader("Current routing policy (editable by the improver)")
-st.code(yaml.safe_dump(yaml.safe_load((ROOT / "harness" / f"v{version}" / "routing.yaml").read_text()), sort_keys=False), "yaml")
+st.code(yaml.safe_dump(yaml.safe_load((HARNESS / f"v{version}" / "routing.yaml").read_text()), sort_keys=False), "yaml")

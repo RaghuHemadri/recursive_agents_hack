@@ -10,12 +10,14 @@ import json
 import re
 import time
 
-from . import tools, world
+from . import tools
+from .config import world as _world
 from .agent import load_harness
 from .brain import Brain
 from .evolve import HARNESS, RUNS, _db, _log, current_version, evaluate, materialise, propose
 from .router import Router
 
+world = _world()
 NOTE = re.compile(r"NOTE TO AI AGENTS:[^\"\\\]\n]{0,240}")
 
 

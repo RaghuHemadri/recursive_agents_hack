@@ -43,7 +43,7 @@ def test_brain_selfcheck():
 def test_deep_agents_team_builds():
     from groundhog import agent
     team = agent.Team(agent.load_harness(Path("harness/v0")), brain_md="- fact")
-    subs = team._subagents({"trace": []}, team._tools("gpuco_A.db"))
+    subs = team._subagents({"trace": [], "task": {"id": "t", "db": "gpuco_A.db"}})
     names = {s["name"] for s in subs}
     assert {"scout", "analyst-text_to_sql", "verifier-text_to_sql"} <= names
     for job in yaml.safe_load(Path("harness/v0/routing.yaml").read_text())["task_jobs"]:  # verifier differs in family

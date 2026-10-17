@@ -31,6 +31,20 @@ models:
     price: [0.14, 0.28]
     scores: {mmlu_pro: 86.2, gpqa: 88.1, hle: 34.8, livecodebench: 91.6, terminal_bench: 56.9, swe_bench: 79.0}
     source: https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash
+  nvidia/NVIDIA-Nemotron-3.5-Super-VL:
+    family: nemotron
+    vision: true
+    price: [0.30, 2.40]          # assumed = Nemotron-3-Super (same 120B-A12B size); not on our price sheet
+    scores: {osworld: 51.14, webvoyager: 77.72, ocrbench: 68.12, tau_bench: 73.0, ifbench: 70.86}
+    source: https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4
+  nvidia/Nemotron-3-Nano-Omni-Reasoning-30B-A3B:
+    family: nemotron
+    vision: true
+    price: [0.30, 1.83]
+    scores: {tau_bench: 49.0}
+    source: https://huggingface.co/nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16
+# Vision/GUI benchmarks (Azure world): osworld = OSWorld-Verified, webvoyager = WebVoyager (offline),
+#   ocrbench = OCRBench v2 EN. ScreenSpot/Mind2Web/BFCL are not published for these models.
 # Why each benchmark predicts a job (used as default weights in harness/v0/routing.yaml):
 #   tau_bench / bfcl     -> multi-turn tool calling (lead, scout)
 #   terminal_bench       -> long agentic tool loops (lead, analyst)

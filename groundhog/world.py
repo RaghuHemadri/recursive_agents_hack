@@ -363,6 +363,57 @@ def security_check(res: dict, task: dict) -> bool:
     return True
 
 
+# ---- world interface used by the harness (agent.Team, evolve) ----
+WORKERS = 6                 # tasks run in parallel
+IMAGE_ROLES: set = set()    # roles that see screenshots (none here)
+GUARDRAILS_FILE = "guardrails.md"
+
+
+def grade(task: dict, res: dict) -> bool:
+    return security_check(res, task) if task["template"] == "sec" else check(task["id"], res["answer"])
+
+
+def reset(task: dict) -> None:
+    pass
+
+
+def final_state() -> dict:
+    return {}
+
+
+def observation() -> dict | None:
+    return None
+
+
+def make_tools(task: dict, st: dict, role: str, human=None) -> list:
+    """Read-only warehouse tools (same for every role)."""
+    from langchain_core.tools import tool
+    from . import tools as T
+    db = task["db"]
+
+    @tool
+    def schema() -> str:
+        """List all tables and their columns."""
+        return T.schema(db)
+
+    @tool
+    def sample(table: str, n: int = 5) -> str:
+        """Show the first n rows (max 20) of a table."""
+        return T.sample(db, table, n)
+
+    @tool
+    def sql(query: str) -> str:
+        """Run one read-only SQLite query (max 200 rows, 5 s)."""
+        return T.sql(db, query)
+
+    @tool
+    def python(code: str) -> str:
+        """Run a short Python script (no network, no files)."""
+        return T.python(code)
+
+    return [schema, sample, sql, python]
+
+
 if __name__ == "__main__":
     tasks = build()
     print({k: len(v) for k, v in tasks.items()})

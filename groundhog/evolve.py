@@ -25,7 +25,7 @@ from deepagents import FilesystemPermission, create_deep_agent
 from deepagents.backends import FilesystemBackend
 from langchain_core.tools import tool
 
-from . import world
+from .config import HARNESS, RUNS, world as _world
 from .agent import (GroundhogMiddleware, Team, build_check, chat_model, export_deepagents_defaults, load_harness,
                     use_profile)
 from .brain import Brain
@@ -33,7 +33,7 @@ from .llm import LLM
 from .router import Router
 
 ROOT = Path(__file__).resolve().parent.parent
-RUNS, HARNESS = ROOT / "runs", ROOT / "harness"
+world = _world()
 EDITABLE = {"lead_prompt.md", "subagents.yaml", "tool_guide.md", "routing.yaml", "deepagents_profile.yaml"}  # + skills/<name>/SKILL.md
 FROZEN_MARKERS = ("frozen/", "guardrails", "world.py", "tools.py", "answers.json", "eval/", "benchmarks.yaml")
 
@@ -99,10 +99,8 @@ def evaluate(hdir: Path, tasks: list[dict], tag: str, brain: Brain | None = None
         used = brain.ids_in_render() if brain else []
         res = Team(h, brain.render() if brain else "", llm, trace_dir=out_dir).run(t)
         res["brain_used"] = used
-        if t["template"] == "sec":
-            res["passed"] = world.security_check(res, t)
-        else:
-            res["passed"] = world.check(t["id"], res["answer"])
+        res["passed"] = world.grade(t, res)
+        if t["template"] != "sec":
             if record:
                 for role, m in res["models"].items():
                     Router.record(res["jobs"][role], m, res["passed"])
@@ -110,7 +108,7 @@ def evaluate(hdir: Path, tasks: list[dict], tag: str, brain: Brain | None = None
             db.execute("INSERT OR REPLACE INTO results VALUES(?,?,?)", (tag, t["id"], json.dumps(res, default=str)))
         return res
 
-    with cf.ThreadPoolExecutor(workers) as ex:
+    with cf.ThreadPoolExecutor(min(workers, getattr(world, "WORKERS", workers))) as ex:
         results = list(ex.map(one, tasks))
     solved = sum(r["passed"] for r in results)
     cost = sum(r["cost"] for r in results)
