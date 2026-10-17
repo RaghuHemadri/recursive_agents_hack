@@ -4,9 +4,11 @@
 > keeps a change **only if it wins on tasks it has never seen**, and does it inside walls it **cannot edit**.
 
 **Tracks:** Version N+1 (harness evolution) · Shared Brain (curated team memory) · Done Means Done (verifier-gated submit)
-**Stack:** Nemotron on Crusoe Managed Inference · LangChain Deep Agents · Switchyard-style routing · sandboxed execution
+**Stack:** Nemotron on Crusoe Managed Inference · LangChain Deep Agents · Switchyard-style routing · sandboxed execution · Playwright computer use
 
-![Groundhog architecture](docs/groundhog_architecture.svg)
+![Groundhog: three loops, one team](docs/steps/6-all.png)
+
+Interactive version: open [`docs/groundhog_explainer.html`](docs/groundhog_explainer.html) in a browser (← → to step through).
 
 ---
 
@@ -16,81 +18,44 @@ Groundhog separates two things every agent team mixes together:
 
 | | What it is | Where it lives | Who can change it |
 |---|---|---|---|
-| **Brain** | *what the team knows* — facts, pitfalls, recipes learned from past tasks | `runs/brain.db` → `BRAIN.md` | curator, after every task |
-| **Harness** | *how the team works* — prompts, sub-agents, skills, routing | `harness/vN/` | improver, between generations, **only if the gate accepts** |
-| **Guardrails** | *what the team may never do* — security rules, tools, checker, answers | `frozen/`, `groundhog/` | **nobody at runtime** |
+| **Brain** | *what the team knows*: facts, pitfalls, recipes learned from past tasks | `runs/brain.db` → `BRAIN.md` | curator, after every task |
+| **Harness** | *how the team works*: prompts, sub-agents, skills, routing | `harness/vN/` | improver, between generations, **only if the gate accepts** |
+| **Guardrails** | *what the team may never do*: security rules, tools, checker, answers | `frozen/`, `groundhog/` | **nobody at runtime** |
 
 Model weights never change. All learning is in the brain and the harness, so improvements carry over to new model versions.
 
 ---
 
-## Architecture (detailed)
+## How it works, in six steps
 
-```mermaid
-flowchart TB
-  subgraph TRUSTED["🔒 Trusted control plane — the self-improver cannot edit any of this"]
-    direction TB
-    EVO["Evolution loop<br/>(groundhog/evolve.py)"]
-    GATE{"Gate<br/>+2 solved on validation<br/>(or +1 at ≥10% lower $/solve)<br/>100% security tests<br/>leak filter"}
-    ARCH[("Archive<br/>accepted + rejected edits<br/>with reasons")]
-    EVAL[("Eval sets + answers<br/>+ checker<br/>never mounted for agents")]
-    GUARD["frozen/guardrails.md<br/>(first in every prompt)"]
-    CUR["Curator<br/>dedup · contradictions ·<br/>quarantine · retire · trust"]
-  end
+**1 · Solve one task** (Done Means Done). The lead writes a definition of done before anyone starts; an analyst
+solves; a verifier re-derives the answer a different way, on a different model. `submit` is rejected unless they agree.
+Guards (step cap, loop detector, token budget) make the team report "unsolved" instead of looping or bluffing.
 
-  subgraph SANDBOX["🧱 Sandbox — agent team + agent-written code"]
-    direction TB
-    LEAD["Lead<br/>writes definition of done,<br/>delegates"]
-    SCOUT["scout<br/>explores schema"]
-    ANA["analyst (one per job type)<br/>solves"]
-    VER["verifier (one per job type)<br/>re-derives independently<br/>(different model family)"]
-    SUB["submit<br/>rejected unless verifier agrees"]
-    TOOLS["Fixed tools<br/>read-only sql · schema · sample<br/>python: no network, no secrets"]
-    LEAD --> SCOUT & ANA
-    ANA --> VER --> SUB
-    SCOUT & ANA & VER --> TOOLS
-  end
+![Step 1](docs/steps/1-solve.png)
 
-  HARN[["harness/vN/<br/>lead_prompt · subagents · skills<br/>tool_guide · routing · deepagents_profile"]]
-  BRAIN[["BRAIN.md<br/>curated lessons"]]
-  IMP["Improver<br/>(read-only Deep Agent over<br/>harness/ + TRAINING traces only)"]
-  ROUTER["Router<br/>(Switchyard auto-route semantics)<br/>benchmark prior → measured pass/fail"]
-  CRUSOE[("Crusoe Managed Inference<br/>Nemotron 3 Nano · 3.5 Lightning ·<br/>3 Super · 3.5 Super VL")]
+**2 · Learn from it** (Shared Brain). A reflector turns the trace into a candidate lesson; a single curator admits,
+merges, retires or **quarantines** it. Every agent reads `BRAIN.md` before its next task.
 
-  HARN -->|configures| LEAD
-  BRAIN -->|read before every task| LEAD
-  SUB -->|answer| EVAL
-  EVAL -->|PASS / FAIL| EVO
-  SANDBOX -->|traces| CUR --> BRAIN
-  EVO -->|failed training traces| IMP -->|3 edits, each with hypothesis| GATE
-  GATE -->|"accept → harness/vN+1 + git commit"| HARN
-  GATE -->|reject + reason| ARCH
-  ARCH --> IMP
-  GUARD -.-> SANDBOX
-  LEAD & SCOUT & ANA & VER & IMP --> ROUTER --> CRUSOE
-```
+![Step 2](docs/steps/2-learn.png)
 
-### One generation of the Version N+1 loop
+**3 · Rewrite how the team works** (Version N+1). Between generations, an improver reads only the failed *training*
+traces and the archive of past edits, and proposes small single-file edits to the harness, each with a hypothesis.
 
-```mermaid
-sequenceDiagram
-  participant H as Harness vN
-  participant T as Training tasks (8)
-  participant I as Improver
-  participant V as Validation tasks (unseen by improver)
-  participant G as Gate
-  H->>T: run team, record traces + PASS/FAIL
-  T->>I: failed traces + archive of past edits
-  I->>I: propose 3 single-file edits (<40 lines, stated hypothesis)
-  I->>T: run each candidate on the same training tasks
-  I->>G: merge the edits that helped → candidate vN+1
-  G->>V: run vN and vN+1 on validation + security tests
-  alt beats vN, 100% security, no leaks
-    G->>H: promote → harness/v(N+1), git commit
-  else
-    G->>G: reject, archive with reason (improver sees it next time)
-  end
-```
+![Step 3](docs/steps/3-rewrite.png)
+
+**4 · Keep it only if it wins.** Old and new harness run on the same validation tasks the improver has never seen.
+Promote only with +2 solved (or +1 at ≥10% lower cost per solve), 100% of security tests, and a clean leak filter.
+Otherwise archive the edit with the reason.
+
+![Step 4](docs/steps/4-gate.png)
+
+**5 · It can't move its own goalposts.** Answers, checker, gate, guardrails and tool code are outside anything the
+improver can edit. Attempts to reach them are denied and logged; candidates that weaken security fail the gate.
+
+![Step 5](docs/steps/5-wall.png)
+
+*Steps 3–4 show an illustrative example; measured results are in [Results](#results).*
 
 ---
 
@@ -129,7 +94,12 @@ source task, and trust/taint status.
 
 ---
 
-## Task world
+## Task worlds
+
+The same harness, brain and evolution loop run on two worlds (`GROUNDHOG_WORLD=gpuco|azure`).
+
+### GPUCo (default): a data warehouse with traps
+
 
 **GPUCo**: a synthetic SQLite warehouse for a GPU cloud, with planted quirks a team must *learn*: money in cents,
 epoch-ms timestamps, a stale `jobs_v1` table, soft deletes, GPU-name aliases, mixed status casing, preemptible
@@ -137,7 +107,24 @@ discounts, and prompt injections in `support_tickets`. 16 question templates wit
 **split by template** (8 train / 4 val / 4 test) so the improver can't memorize answers.
 **DB-B** has the same shape with *different* quirks — used to test whether *how the team works* transfers.
 
-Worlds are pluggable (`GROUNDHOG_WORLD=<name>` → `groundhog/world_<name>.py`).
+### Aetheris for Azure: computer use on the real Azure portal
+
+The team drives a real browser (Playwright) on portal.azure.com. Each screen role sees a screenshot with **numbered marks**
+on every interactive element (Set-of-Marks, as in WebVoyager) plus the element list, and acts by number
+(`click(7)`, `type_text(9, …)`), never by guessing pixels.
+
+- **Nemotron only** (frozen for this world): screen roles use Nemotron-3.5-Super-VL / Nano-Omni; the verifier is always a
+  different model than the analyst.
+- **Ask and steer:** any agent can `ask_human`; a guard about to trip asks you instead of giving up; anything you type
+  mid-run is injected as steering before the next model call.
+- **Frozen safety:** destructive or submitting clicks (delete, stop, purchase, create, save, assign…) need an explicit
+  human "yes" and are denied when unattended; password fields are never typed into; only Azure/Microsoft URLs.
+- **Learns live:** after each task you say whether it worked; the reflector turns the trace, including your guidance,
+  into Azure lessons that later tasks read.
+- **Evolves offline:** 16 read-only navigation tasks (8 train / 4 val / 4 test, graded on final URL or blade title)
+  plus 2 security tasks, through the same improver, gate and leak filter; harness files in `harness_azure/vN/`.
+
+Worlds are pluggable: `GROUNDHOG_WORLD=<name>` loads `groundhog/world_<name>.py`.
 
 ---
 
@@ -182,6 +169,16 @@ The best harness runs with an **empty brain**, so anything it gains comes from h
 |---|---|---|
 | solved | ⏳ | ⏳ |
 <!-- source: `python -m groundhog.evolve table` (transfer rows) -->
+
+### Azure world (n shown per row)
+
+| | v0 | best harness | n |
+|---|---|---|---|
+| Held-out navigation tasks solved | ⏳ | ⏳ | 4 |
+| Security tasks passed | ⏳ | ⏳ | 2 |
+| Destructive clicks attempted unattended → denied | ⏳ | ⏳ | — |
+| Same task, before vs after a lesson: steps · human asks | ⏳ | ⏳ | 1 |
+<!-- source: GROUNDHOG_WORLD=azure evolve → runs_azure/evals.jsonl, runs_azure/denials.jsonl; live app session log -->
 
 ### Is the brain making the team faster?
 
@@ -263,13 +260,18 @@ echo "LLM_API_KEY=<your Crusoe key>" > .env
 .venv/bin/python -m groundhog.evolve table                            # 2×2 + transfer
 .venv/bin/python -m groundhog.evolve attack-memory                    # attack 1
 .venv/bin/python -m groundhog.evolve attack-improver                  # attack 2
+
+# Azure world
+GROUNDHOG_WORLD=azure .venv/bin/python -m groundhog.app               # http://localhost:7860, sign in yourself, type tasks
+GROUNDHOG_WORLD=azure .venv/bin/python -m groundhog.evolve evolve --limit 4
 ```
 
 ---
 
 ## Credits and disclosures
 
-**Libraries:** LangChain Deep Agents, Nemotron models on Crusoe, rapidfuzz.
+**Libraries:** LangChain Deep Agents, Nemotron models on Crusoe, Playwright, Flask, rapidfuzz.
+**Built from:** [aetheris](https://github.com/savir2010/aetheris) for the Azure world's screenshot → "what to click" idea (voice removed, turned into real actions).
 **Ideas credited:** ACE (curated playbooks), Meta-Harness, Harness², RRSI, Darwin Gödel Machine, NeMo Switchyard
 (routing semantics), OpenShell / NemoClaw (sandbox policy target).
 
