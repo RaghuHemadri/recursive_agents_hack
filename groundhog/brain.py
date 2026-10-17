@@ -24,6 +24,9 @@ REFLECT_PROMPT = """You are the REFLECTOR for a data team. Read the trace of one
 shared playbook (BRAIN). Lessons must be short, general facts about THIS database or reusable recipes/checks - never the
 answer value of this question. Current BRAIN bullets (with ids and scopes) are below; mark which ones helped or hurt.
 If a new lesson contradicts an existing bullet, list that bullet's id in "contradicts".
+Validation is critical: if the verifier agreed with a WRONG answer, add a "check" lesson on what the validation missed;
+if the verifier caught an error or confirmed a correct answer with a useful independent method, add a "check" lesson on
+what worked.
 Return ONLY JSON: {"ops":[{"op":"add","type":"fact|pitfall|recipe|check","scope":"<table or topic>","text":"...",
 "cites":[<trace step numbers>],"contradicts":[ids]} | {"op":"update","id":N,"text":"...","cites":[...]} |
 {"op":"retire","id":N}], "helpful":[ids], "harmful":[ids]}"""
@@ -38,6 +41,9 @@ class Brain:
                 helpful INT DEFAULT 0, harmful INT DEFAULT 0, source_task TEXT, trusted INT DEFAULT 0,
                 quarantined INT DEFAULT 0, retired INT DEFAULT 0, created REAL)""")
             db.execute("CREATE TABLE IF NOT EXISTS log(ts REAL, event TEXT)")
+            # validations that worked and that failed: verifier checks, candidate edits on train, gate decisions
+            db.execute("""CREATE TABLE IF NOT EXISTS validations(id INTEGER PRIMARY KEY, ts REAL, kind TEXT, scope TEXT,
+                subject TEXT, worked INT, detail TEXT, source TEXT, split TEXT)""")
 
     def _db(self):
         return sqlite3.connect(self.path, timeout=30)
@@ -53,7 +59,38 @@ class Brain:
         bs = self.bullets()
         while sum(len(b["text"]) + 30 for b in bs) > TOKEN_CAP_CHARS:
             bs.remove(min(bs, key=lambda b: (b["helpful"] - b["harmful"], b["id"])))
-        return "\n".join(f"- [{b['id']}|{b['type']}|{b['scope']}{'|trusted' if b['trusted'] else ''}] {b['text']}" for b in bs)
+        out = "\n".join(f"- [{b['id']}|{b['type']}|{b['scope']}{'|trusted' if b['trusted'] else ''}] {b['text']}" for b in bs)
+        val = self.render_validations()
+        return out + (f"\n\n## Validation record (verifier checks that worked / failed)\n{val}" if val else "")
+
+    def record_validation(self, kind: str, scope: str, subject: str, worked: bool, detail: str, source: str,
+                          split: str = "train") -> None:
+        with self.lock, self._db() as db:
+            db.execute("INSERT INTO validations(ts,kind,scope,subject,worked,detail,source,split) VALUES(?,?,?,?,?,?,?,?)",
+                       (time.time(), kind, scope, subject, int(worked), detail, source, split))
+            self._log(db, f"validation {kind} {'WORKED' if worked else 'FAILED'} [{scope}] {detail[:100]}")
+
+    def validations(self) -> list[dict]:
+        with self._db() as db:
+            db.row_factory = sqlite3.Row
+            return [dict(r) for r in db.execute("SELECT * FROM validations ORDER BY id")]
+
+    def render_validations(self, for_improver: bool = False) -> str:
+        """What worked and what failed. Agents: verifier record per job from training tasks (no task ids/answers).
+        Improver: also validation-split counts, candidate edits and gate decisions."""
+        vs = [v for v in self.validations() if for_improver or v["split"] == "train"]
+        lines = []
+        for split in sorted({v["split"] for v in vs if v["kind"] == "verifier"}):
+            for job in sorted({v["scope"] for v in vs if v["kind"] == "verifier" and v["split"] == split}):
+                js = [v for v in vs if v["kind"] == "verifier" and v["scope"] == job and v["split"] == split]
+                ok, bad = [v for v in js if v["worked"]], [v for v in js if not v["worked"]]
+                lines.append(f"- [{split}] {job}: validation worked {len(ok)}x, FAILED {len(bad)}x"
+                             + (f" (latest failure: {bad[-1]['detail']})" if bad else ""))
+        if for_improver:
+            for v in vs:
+                if v["kind"] in ("candidate", "gate"):
+                    lines.append(f"- {v['kind']} {'WORKED' if v['worked'] else 'FAILED'} [{v['scope']}] {v['subject'][:160]} :: {v['detail']}")
+        return "\n".join(lines)
 
     def ids_in_render(self) -> list[int]:
         return [int(m) for m in re.findall(r"^- \[(\d+)\|", self.render(), re.M)]

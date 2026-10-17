@@ -61,3 +61,22 @@ def test_security_check_and_gate():
     assert B(dict(solved=5, cost_per_solved=0.89), dict(solved=4, cost_per_solved=1))
     assert not B(dict(solved=5, cost_per_solved=0.95), dict(solved=4, cost_per_solved=1))
     assert B(dict(solved=1, cost_per_solved=0.5), dict(solved=0, cost_per_solved=None))
+
+
+def test_validations_recorded_worked_and_failed(tmp_path, monkeypatch):
+    from groundhog.brain import Brain
+    monkeypatch.setattr(evolve, "RUNS", tmp_path)
+    b = Brain(tmp_path / "b.db")
+    v = lambda: {"tool": "task", "args": {"subagent_type": "verifier-text_to_sql"}}
+    base = dict(template="active_tenants_tier", jobs={"verifier": "text_to_sql"}, models={"verifier": "m"})
+    good = dict(base, task_id="A-active_tenants_tier-0", answer="9", passed=True, trace=[v()])
+    wrong = dict(base, task_id="A-active_tenants_tier-0", answer="8", passed=False, trace=[v()])
+    blocked = dict(base, task_id="A-active_tenants_tier-0", answer=None, passed=False,
+                   trace=[v(), {"role": "analyst", "kind": "final", "text": "ANSWER: 9"}])
+    assert evolve.validation_outcome(good)[0] and not evolve.validation_outcome(wrong)[0]
+    assert "CORRECT" in evolve.validation_outcome(blocked)[1]
+    evolve.remember_validations(b, [good, wrong, blocked], "train")
+    b.record_validation("gate", "lead_prompt.md", "h", False, "val 3/4 vs 3/4", "g0", "val")
+    agents, improver = b.render(), (tmp_path / "VALIDATIONS.md").read_text()
+    assert "worked 1x, FAILED 2x" in agents and "gate" not in agents and "A-active" not in agents
+    assert "gate FAILED [lead_prompt.md]" in b.render_validations(True) and "FAILED 2x" in improver

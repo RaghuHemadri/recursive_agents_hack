@@ -123,6 +123,32 @@ def evaluate(hdir: Path, tasks: list[dict], tag: str, brain: Brain | None = None
     return dict(summary=summ, results=results)
 
 
+def validation_outcome(res: dict) -> tuple[bool, str] | None:
+    """Did the team's validation work? None if no verifier ran. Details never contain task ids or answer values."""
+    tr = res["trace"]
+    if not any(e.get("tool") == "task" and str(e.get("args", {}).get("subagent_type", "")).startswith("verifier") for e in tr):
+        return None
+    caught = sum(1 for e in tr if e.get("tool") == "submit" and str(e.get("result", "")).startswith("REJECTED"))
+    kind = f"question type {res['template']}"
+    if res["answer"] is not None:
+        if res["passed"]:
+            return True, f"confirmed a correct answer{f' after blocking {caught} unconfirmed submit(s)' if caught else ''} ({kind})"
+        return False, f"verifier AGREED WITH A WRONG ANSWER ({kind})"
+    analyst_right = any(world.check(res["task_id"], m.group(1).strip().split()[0].rstrip(".,"))
+                        for e in tr if e.get("role") == "analyst" and e.get("kind") in ("final", "report")
+                        for m in [re.search(r"ANSWER:\s*\**\s*(\S+)", str(e.get("text", "")))] if m)
+    return (False, f"blocked a CORRECT analyst answer; task left unsolved ({kind})") if analyst_right else \
+        (True, f"blocked wrong answers; task left unsolved ({kind})")
+
+
+def remember_validations(brain: Brain, results: list[dict], split: str) -> None:
+    for r in results:
+        if r.get("template") != "sec" and (o := validation_outcome(r)):
+            brain.record_validation("verifier", r["jobs"].get("verifier", "?"), r["models"].get("verifier", "?"),
+                                    o[0], o[1], r["task_id"], split)
+    (RUNS / "VALIDATIONS.md").write_text("# Validation record (what worked / what failed)\n" + brain.render_validations(True) + "\n")
+
+
 def learn(brain: Brain, llm: LLM, router: Router, results: list[dict]) -> None:
     """Reflectors run in parallel; their ops form a queue that one curator (this loop) applies one task at a time."""
     with cf.ThreadPoolExecutor(6) as ex:
@@ -163,6 +189,7 @@ routing weights). You have READ-ONLY filesystem tools (ls, read_file, glob, grep
   /runs/traces/*-train/      traces of training runs (JSON: answer, models, jobs, trace steps)
   /runs/archive.jsonl        past edits with hypotheses and outcomes
   /runs/router_stats.json    measured [passes, runs] per job and model on training tasks
+  /runs/VALIDATIONS.md       validations that WORKED and FAILED: verifier checks, past candidate edits, gate decisions
 Everything else (answers, checker, guardrails, tools, validation and test runs) is denied, and you cannot write files.
 Study the failed traces the user lists and the archive, then call `propose_edit` exactly 3 times with 3 DIFFERENT edits.
 Each edit gives the FULL new content of ONE editable file of the current harness (lead_prompt.md, subagents.yaml,
@@ -171,7 +198,7 @@ than 40 lines, and states a falsifiable hypothesis. General lessons only: never 
 routing.yaml maps published benchmarks to jobs; change weights, cost_weight, pins or escalation if the measured stats
 show a model under-performing its benchmark prior."""
 READABLE = ["/harness", "/harness/**", "/runs", "/runs/traces", "/runs/traces/*-train", "/runs/traces/*-train/**",
-            "/runs/archive.jsonl", "/runs/router_stats.json"]
+            "/runs/archive.jsonl", "/runs/router_stats.json", "/runs/VALIDATIONS.md"]
 IMPROVER_PERMISSIONS = [FilesystemPermission(operations=["write"], paths=["/**"], mode="deny"),
                         FilesystemPermission(operations=["read"], paths=READABLE),
                         FilesystemPermission(operations=["read"], paths=["/**"], mode="deny")]
@@ -284,6 +311,13 @@ def generation(llm: LLM, brain: Brain | None, limit: int | None = None) -> dict:
             kv_set(f"cand:{g}:{i}", True)
     if brain is not None and not kv_get(f"learned:{g}"):  # after the candidates: every train run saw the same brain
         learn(brain, llm, Router(load_harness(base)["routing"]), train["results"])
+        remember_validations(brain, train["results"], "train")
+        for e in cands:
+            helped = e["train"]["solved"] > train["summary"]["solved"] or (
+                e["train"]["solved"] == train["summary"]["solved"] and e["train"]["cost"] < 0.9 * train["summary"]["cost"])
+            brain.record_validation("candidate", e["file"], e["hypothesis"], helped,
+                                    f"train {e['train']['solved']}/{e['train']['n']} vs base {train['summary']['solved']}/{train['summary']['n']}",
+                                    f"g{g}", "train")
         kv_set(f"learned:{g}", True)
     helped = [e for e in cands if e["train"]["solved"] > train["summary"]["solved"] or
               (e["train"]["solved"] == train["summary"]["solved"] and (e["train"]["cost"] < 0.9 * train["summary"]["cost"]))]
@@ -296,12 +330,14 @@ def generation(llm: LLM, brain: Brain | None, limit: int | None = None) -> dict:
         kv_set("gen", g + 1)
         return rec
     merged = materialise(base, list(by_file.values()), RUNS / "candidates" / f"g{g}-merged")
-    old_val = evaluate(base, val_tasks, f"g{g}-base-val", brain, llm=llm)["summary"]
-    new_val = evaluate(merged, val_tasks, f"g{g}-new-val", brain, llm=llm)["summary"]
+    old_eval, new_eval = (evaluate(h, val_tasks, f"g{g}-{k}-val", brain, llm=llm) for h, k in ((base, "base"), (merged, "new")))
+    old_val, new_val, old_val_res, new_val_res = old_eval["summary"], new_eval["summary"], old_eval["results"], new_eval["results"]
     sec = evaluate(merged, world.SECURITY_TASKS, f"g{g}-new-sec", brain, llm=llm)["summary"]
     reason = None if better(new_val, old_val) else f"val {new_val['solved']} vs {old_val['solved']} (cost/solved {new_val['cost_per_solved']} vs {old_val['cost_per_solved']})"
     if sec["solved"] < sec["n"]:
         reason = f"security tests {sec['solved']}/{sec['n']}"
+    if brain is not None:  # recorded only after both validation runs, so the gate compared the same brain
+        remember_validations(brain, old_val_res + new_val_res, "val")
     rec = dict(ts=time.time(), gen=g, version=n, files=list(by_file), hypotheses=[e["hypothesis"] for e in by_file.values()],
                val_new=new_val["solved"], val_old=old_val["solved"], sec=f"{sec['solved']}/{sec['n']}",
                diff="\n".join(line for f in by_file for line in difflib.unified_diff(
@@ -315,6 +351,11 @@ def generation(llm: LLM, brain: Brain | None, limit: int | None = None) -> dict:
         subprocess.run(["git", "add", "harness"], cwd=ROOT, capture_output=True)
         subprocess.run(["git", "commit", "-m", f"harness v{n + 1}: " + "; ".join(rec["hypotheses"])[:200]], cwd=ROOT, capture_output=True)
     _log("archive.jsonl", rec)
+    if brain is not None:
+        brain.record_validation("gate", ",".join(by_file), "; ".join(rec["hypotheses"]), not reason,
+                                f"val {new_val['solved']}/{new_val['n']} vs {old_val['solved']}/{old_val['n']}, security {rec['sec']}"
+                                + (f"; rejected: {reason}" if reason else f"; accepted as v{n + 1}"), f"g{g}", "val")
+        remember_validations(brain, [], "val")
     kv_set("gen", g + 1)
     return rec
 

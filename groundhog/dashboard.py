@@ -57,6 +57,14 @@ with c3:
                 st.markdown(f"~~{tag} {b[3]}~~")
             else:
                 st.markdown(f"{tag} {b[3]}")
+        try:
+            vals = sqlite3.connect(db).execute("SELECT split, kind, scope, worked, detail FROM validations ORDER BY id DESC LIMIT 40").fetchall()
+        except sqlite3.OperationalError:
+            vals = []
+        if vals:
+            st.subheader("Validation record (worked / failed)")
+            st.dataframe(pd.DataFrame([dict(split=v[0], kind=v[1], scope=v[2], result="WORKED" if v[3] else "FAILED", detail=v[4])
+                                       for v in vals]), use_container_width=True)
 with c4:
     st.subheader("Model mix (benchmark-routed) and escalations")
     ok = [r for r in routing if "role" in r and "error" not in r and "event" not in r]
