@@ -1,7 +1,8 @@
 """Benchmark-informed, adaptive model router (Switchyard `auto`-style escalation, in Python).
 
 score(model, job) = weighted published benchmark scores for the benchmarks that predict that job
-                    (missing scores imputed from the model's relative strength, with a penalty)
+                    (role jobs, plus generic task_jobs the lead picks per task, e.g. text_to_sql)
+                    (missing score = worst published score on that benchmark)
 prior             = Beta(k*score, k*(1-score))  -> updated with measured pass/fail per (job, model) from runs/
 choose            = argmax posterior_mean - cost_weight[job] * log10(price / cheapest_price)
 escalate          = after N tool errors / repeated calls, re-route ignoring cost ("capable" target)
@@ -24,14 +25,11 @@ _cooldown: dict[str, float] = {}
 
 
 def benchmark_scores() -> dict[str, dict[str, float]]:
-    """Fill missing scores: shrink the model's relative strength halfway to the benchmark mean, then a 10% unknown penalty."""
+    """Missing score = the worst published score on that benchmark: model cards tend to omit benchmarks a model is
+    weak on, so published evidence beats no evidence; measured outcomes then correct the prior."""
     benches = {b for m in BENCH.values() for b in m["scores"]}
-    mean = {b: sum(v) / len(v) for b in benches if (v := [m["scores"][b] for m in BENCH.values() if b in m["scores"]])}
-    out = {}
-    for name, m in BENCH.items():
-        rel = sum(m["scores"][b] / mean[b] for b in m["scores"]) / len(m["scores"])
-        out[name] = {b: m["scores"].get(b, min(100.0, mean[b] * (0.5 + 0.5 * rel) * 0.9)) / 100 for b in benches}
-    return out
+    worst = {b: min(m["scores"][b] for m in BENCH.values() if b in m["scores"]) for b in benches}
+    return {name: {b: m["scores"].get(b, worst[b]) / 100 for b in benches} for name, m in BENCH.items()}
 
 
 class Router:
@@ -46,7 +44,7 @@ class Router:
         return json.loads(STATS.read_text()) if STATS.exists() else {}
 
     def prior(self, model: str, job: str) -> float:
-        w = self.cfg["jobs"][job]
+        w = self.cfg["jobs"].get(job) or self.cfg["task_jobs"][job]["weights"]
         return sum(self.bench[model][b] * x for b, x in w.items()) / sum(w.values())
 
     def table(self, job: str, capable: bool = False) -> list[tuple]:
@@ -63,19 +61,22 @@ class Router:
             rows.append((post - lam * math.log10(blend[m] / cheapest), m, round(p, 3), round(post, 3), n))
         return sorted(rows, reverse=True)
 
-    def pick(self, role: str, task_category: str | None = None, capable: bool = False, avoid_family: str | None = None) -> str:
+    def pick(self, role: str, task_job: str | None = None, capable: bool = False, avoid_family: str | None = None) -> str:
         if pin := self.cfg.get("pins", {}).get(role):
             return pin
-        job = self.job_for(role, task_category)
+        job = self.job_for(role, task_job)
         for _, m, *_ in self.table(job, capable):
             if _cooldown.get(m, 0) > time.time() or (avoid_family and BENCH[m]["family"] == avoid_family):
                 continue
             return m
         return self.table(job, capable)[0][1]
 
-    def job_for(self, role: str, task_category: str | None) -> str:
+    def job_for(self, role: str, task_job: str | None) -> str:
+        """Roles with a fixed job use it; task roles (analyst/verifier) use the job the lead tagged for this task."""
         job = self.cfg["roles"][role]
-        return task_category if job == "task" and task_category else ("sql_lookup" if job == "task" else job)
+        if job != "task":
+            return job
+        return task_job if task_job in self.cfg.get("task_jobs", {}) else self.cfg["default_task_job"]
 
     @staticmethod
     def family(model: str) -> str:
@@ -99,7 +100,7 @@ class Router:
 if __name__ == "__main__":
     cfg = yaml.safe_load((ROOT / "harness" / "v0" / "routing.yaml").read_text())
     r = Router(cfg)
-    for job in cfg["jobs"]:
+    for job in [*cfg["jobs"], *cfg["task_jobs"]]:
         print(f"\n{job}:")
         for u, m, p, post, n in r.table(job):
             print(f"  {u:+.3f}  {m:45s} bench={p:.3f} post={post:.3f} n={n}")

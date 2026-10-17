@@ -62,29 +62,3 @@ def python(code: str) -> str:
         except subprocess.TimeoutExpired:
             return "ERROR: timeout"
     return (r.stdout + r.stderr)[-3000:]
-
-
-SPECS = {
-    "schema": ("List all tables and their columns.", {}),
-    "sample": ("Show the first n rows of a table.", {"table": {"type": "string"}, "n": {"type": "integer"}}),
-    "sql": ("Run one read-only SQLite query (max 200 rows, 5 s).", {"query": {"type": "string"}}),
-    "python": ("Run a short Python script (no network, no files).", {"code": {"type": "string"}}),
-    "report": ("Finish your turn with your final answer and short notes.", {"answer": {"type": "string"}, "notes": {"type": "string"}}),
-}
-
-
-def spec(names: list[str]) -> list[dict]:
-    return [{"type": "function", "function": {"name": n, "description": SPECS[n][0],
-             "parameters": {"type": "object", "properties": SPECS[n][1], "required": list(SPECS[n][1])[:1]}}} for n in names]
-
-
-def call(db: str, name: str, args: dict) -> str:
-    if name == "schema":
-        return schema(db)
-    if name == "sample":
-        return sample(db, args.get("table", ""), args.get("n", 5))
-    if name == "sql":
-        return sql(db, args.get("query", ""))
-    if name == "python":
-        return python(args.get("code", ""))
-    return _deny("unknown_tool:" + name, json.dumps(args))

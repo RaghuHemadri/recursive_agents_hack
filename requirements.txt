@@ -1,0 +1,4 @@
+deepagents==0.7.28
+langchain-openai==1.7.2
+RapidFuzz==3.14.6
+streamlit==1.66.0

@@ -235,9 +235,6 @@ SPLITS = {
     "val": ["avg_duration_gpu", "spot_share", "unpaid_active", "gpus_in_region"],
     "test": ["distinct_tenants_gpu", "max_job_cost", "top_tenant_usage", "running_jobs_tier"],
 }
-# task category -> drives benchmark-informed routing (see benchmarks.yaml)
-CATEGORY = {t: "money_arith" if any(k in t for k in ("revenue", "cost", "unpaid", "spot", "pct", "duration", "hours"))
-            else "sql_lookup" for t in TEMPLATES}
 
 
 def build(seed: int = 7) -> dict:
@@ -254,7 +251,7 @@ def build(seed: int = 7) -> dict:
                 q, sampler, gold = TEMPLATES[tid]
                 for i in range(n):
                     p = sampler(clean, rng)
-                    out.setdefault(split, []).append(dict(id=f"{variant}-{tid}-{i}", template=tid, category=CATEGORY[tid],
+                    out.setdefault(split, []).append(dict(id=f"{variant}-{tid}-{i}", template=tid,
                                                           db=f"gpuco_{variant}.db", question=q.format(**p), answer=gold(clean, p)))
     EVAL.mkdir(exist_ok=True)
     (EVAL / "answers.json").write_text(json.dumps({t["id"]: t["answer"] for ts in out.values() for t in ts}, indent=1))
