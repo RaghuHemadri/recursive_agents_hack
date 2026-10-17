@@ -129,7 +129,7 @@ def propose(llm: LLM, router: Router, hdir: Path, train: dict) -> list[dict]:
         for e in r["trace"][:40]) for r in fails)
     archive = (RUNS / "archive.jsonl").read_text()[-3000:] if (RUNS / "archive.jsonl").exists() else "(empty)"
     stats = json.dumps(Router.stats())[:1500]
-    user = (f"CURRENT HARNESS FILES:\n" + "\n".join(f"=== {k}\n{v}" for k, v in files.items()) +
+    user = ("CURRENT HARNESS FILES:\n" + "\n".join(f"=== {k}\n{v}" for k, v in files.items()) +
             f"\n\nROUTER STATS (job -> model -> [passes, runs]):\n{stats}\n\nARCHIVE:\n{archive}\n\nFAILED TRACES:\n{traces[:20000]}")
     msg, _ = llm.chat(router.pick("improver"), [{"role": "system", "content": IMPROVER_PROMPT}, {"role": "user", "content": user}],
                       max_tokens=12000, meta=dict(role="improver"))
