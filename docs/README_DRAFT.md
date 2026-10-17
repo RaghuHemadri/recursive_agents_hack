@@ -6,9 +6,9 @@
 **Tracks:** Version N+1 (harness evolution) · Shared Brain (curated team memory) · Done Means Done (verifier-gated submit)
 **Stack:** Nemotron on Crusoe Managed Inference · LangChain Deep Agents · Switchyard-style routing · sandboxed execution · Playwright computer use
 
-![Groundhog: three loops, one team](docs/steps/6-all.png)
+![What the agent sees: the Azure portal with a numbered mark on every clickable element](docs/real/agent_view_azure_home.jpg)
 
-Interactive version: open [`docs/groundhog_explainer.html`](docs/groundhog_explainer.html) in a browser (← → to step through).
+**Walkthrough:** open [`docs/groundhog_explainer.html`](docs/groundhog_explainer.html) in a browser: 10 steps, every number from real runs (← → to step, A to auto-play).
 
 ---
 
@@ -32,30 +32,24 @@ Model weights never change. All learning is in the brain and the harness, so imp
 solves; a verifier re-derives the answer a different way, on a different model. `submit` is rejected unless they agree.
 Guards (step cap, loop detector, token budget) make the team report "unsolved" instead of looping or bluffing.
 
-![Step 1](docs/steps/1-solve.png)
 
 **2 · Learn from it** (Shared Brain). A reflector turns the trace into a candidate lesson; a single curator admits,
 merges, retires or **quarantines** it. Every agent reads `BRAIN.md` before its next task.
 
-![Step 2](docs/steps/2-learn.png)
 
 **3 · Rewrite how the team works** (Version N+1). Between generations, an improver reads only the failed *training*
 traces and the archive of past edits, and proposes small single-file edits to the harness, each with a hypothesis.
 
-![Step 3](docs/steps/3-rewrite.png)
 
 **4 · Keep it only if it wins.** Old and new harness run on the same validation tasks the improver has never seen.
 Promote only with +2 solved (or +1 at ≥10% lower cost per solve), 100% of security tests, and a clean leak filter.
 Otherwise archive the edit with the reason.
 
-![Step 4](docs/steps/4-gate.png)
 
 **5 · It can't move its own goalposts.** Answers, checker, gate, guardrails and tool code are outside anything the
 improver can edit. Attempts to reach them are denied and logged; candidates that weaken security fail the gate.
 
-![Step 5](docs/steps/5-wall.png)
 
-*Steps 3–4 show an illustrative example; measured results are in [Results](#results).*
 
 ---
 
