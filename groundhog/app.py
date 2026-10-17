@@ -262,6 +262,17 @@ def api_harness():
     return jsonify(active=label, versions=versions, timeline=timeline, files=files)
 
 
+@app.get("/api/recent")
+def api_recent():
+    """Earlier learning (harness versions and lessons), newest first, so the feed tells the story after a restart."""
+    items = [dict(ts=a["ts"], kind="harness", title=f"Harness v{a['version']}: updated {', '.join(a['files'])}",
+                  text=a["hypotheses"][0] if a.get("hypotheses") else "", diff=a.get("diff", ""), version=a["version"])
+             for a in _jl("archive.jsonl") if a.get("status") == "accepted" and "version" in a]
+    items += [dict(ts=b["created"], kind="lesson", title=f"Lesson ({b['type']}, {b['scope']})", text=b["text"])
+              for b in brain.bullets() if b.get("created")]
+    return jsonify(items=sorted(items, key=lambda x: -x["ts"])[:14])
+
+
 @app.get("/api/summary")
 def api_summary():
     log = _jl("routing.jsonl")
@@ -351,7 +362,7 @@ nav button.on{background:#1c242e;color:#fff}nav button:hover{color:#fff}
 .compose{border-top:1px solid var(--line);padding:10px;display:flex;gap:8px}.compose input{flex:1;padding:10px 12px;border:1px solid #cfd5dd;border-radius:10px;font-size:14px}
 .compose button,.qb{background:var(--ink);color:#fff;border:0;border-radius:10px;padding:0 16px;cursor:pointer}
 .quick{display:flex;flex-wrap:wrap;gap:6px;padding:0 10px 10px}.qb{background:#eef1f5;color:var(--ink);padding:6px 10px;font-size:12px}
-.screen{position:relative;flex:1;display:flex;align-items:center;justify-content:center;background:#0b0f14;border-radius:0 0 12px 12px;overflow:hidden}
+.screen{position:relative;flex:1;display:flex;align-items:flex-start;justify-content:center;background:#eef1f5;border-radius:0 0 12px 12px;overflow:auto;padding:8px}
 .screen img{max-width:100%;max-height:100%}.now{padding:8px 14px;font-size:13px;border-bottom:1px solid var(--line);display:flex;gap:10px;align-items:center}
 .steps{margin-left:auto;background:var(--ink);color:#fff;border-radius:20px;padding:2px 12px;font-weight:700}
 .status{font-size:12px;color:var(--mut)}.dot{width:9px;height:9px;border-radius:50%;background:#bbb;display:inline-block}.dot.busy{background:var(--g);animation:p 1s infinite}
@@ -384,7 +395,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:6px 8px;b
 <div class="kpi hi"><div class="l">Harness version</div><div class="v" id="k-ver">v0</div><div class="d" id="k-ver-d"></div></div>
 <div class="kpi hi"><div class="l">Lessons learned</div><div class="v" id="k-les">0</div><div class="d" id="k-les-d"></div></div>
 <div class="kpi"><div class="l">Switchyard routing</div><div class="v"><span id="k-eff" style="color:var(--eff)">0</span> / <span id="k-cap" style="color:var(--cap)">0</span></div><div class="d">efficient / capable prompts</div></div>
-<div class="kpi"><div class="l">Nemotron models</div><div class="v" id="k-mod">0</div><div class="d" id="k-mod-d"></div></div>
+<div class="kpi"><div class="l">Nemotron models</div><div class="v" id="k-mod">0</div><div class="d" id="k-mod-d">all NVIDIA Nemotron on Crusoe</div></div>
 <div class="kpi"><div class="l">Validations</div><div class="v"><span id="k-ok" style="color:#047857">0</span> / <span id="k-bad" style="color:#b91c1c">0</span></div><div class="d">worked / failed</div></div>
 <div class="kpi"><div class="l">Cost so far</div><div class="v" id="k-cost">$0</div><div class="d">Crusoe inference</div></div></div>
 
@@ -478,7 +489,7 @@ function bar(v,c){return `<div class="bar"><i style="width:${Math.round(v*100)}%
 async function refresh(){try{const S=await (await fetch('/api/summary')).json();
  $('#k-ver').textContent='v'+S.version;$('#k-ver-d').textContent=S.versions_learned+' version(s) learned';$('#k-les').textContent=S.lessons;
  $('#k-les-d').textContent=S.trusted+' trusted · '+S.quarantined+' quarantined';$('#k-eff').textContent=S.efficient;$('#k-cap').textContent=S.capable;
- $('#k-mod').textContent=S.models.length;$('#k-mod-d').textContent=S.models.map(mn).join(', ');$('#k-ok').textContent=S.validations_ok;$('#k-bad').textContent=S.validations_bad;$('#k-cost').textContent='$'+S.spent;
+ $('#k-mod').textContent=S.models.length;$('#k-mod-d').title=S.models.map(mn).join(', ');$('#k-ok').textContent=S.validations_ok;$('#k-bad').textContent=S.validations_bad;$('#k-cost').textContent='$'+S.spent;
  const v=document.querySelector('nav button.on').dataset.v;
  if(v==='how'||v==='routing'){const R=await (await fetch('/api/routing')).json(),T=R.tiers,tp=k=>T[k]?`<span class="badge b-p">capable</span> ${mn(T[k][0])}<br><span class="badge b-e">efficient</span> ${mn(T[k][1])}`:'';
   if(v==='how'){$('#f-lead').innerHTML=tp('lead:');$('#f-scout').innerHTML=tp('scout:');$('#f-analyst').innerHTML=tp('analyst:web_navigation');$('#f-sy').innerHTML=`<b>${S.efficient}</b> efficient · <b>${S.capable}</b> capable so far`;$('#f-brain').innerHTML=`<b>${S.lessons}</b> lessons`;$('#f-ver').innerHTML=`now at <b>v${S.version}</b>`}
@@ -494,6 +505,9 @@ async function refresh(){try{const S=await (await fetch('/api/summary')).json();
   $('#b-list').innerHTML=bs.slice().reverse().map(b=>`<div class="lessoncard">${b.quarantined?'<span class="badge b-r">quarantined</span> ':''}${b.trusted?'<span class="badge b-g">trusted</span> ':''}${b.retired?'<span class="badge">retired</span> ':''}<span class="badge">${esc(b.type)}</span> <span class="muted">${esc(b.scope)}</span><div>${b.retired?'<s>':''}${esc(b.text)}</div><div class="muted">helped ${b.helpful} · hurt ${b.harmful}</div></div>`).join('');
   $('#b-val').innerHTML='<table>'+B.validations.slice().reverse().map(x=>`<tr><td><span class="badge ${x.worked?'b-e':'b-r'}">${x.worked?'worked':'failed'}</span></td><td>${esc(x.kind)}</td><td>${esc(x.detail)}</td></tr>`).join('')+'</table>'}
 }catch(e){console.log(e)}}
+fetch('/api/recent').then(r=>r.json()).then(d=>{if(!d.items.length)return;feed.innerHTML='';feedEmpty=false;
+ d.items.forEach(e=>{const icon=e.kind==='harness'?'🛠':'🧠';const it=document.createElement('div');it.className='it '+e.kind;it.style.opacity=.75;
+ it.innerHTML=`<div class="t">${icon} ${esc(e.title)}${e.version?` <span class="badge b-g">v${e.version}</span>`:''} <span class="muted" style="margin-left:auto;font-weight:400">earlier</span></div><div class="x">${esc(e.text)}</div>`+(e.diff?`<details><summary>what changed</summary>${diffHtml(e.diff)}</details>`:'');feed.appendChild(it)})});
 setInterval(refresh,3000);refresh();poll();
 </script></body></html>
 """
