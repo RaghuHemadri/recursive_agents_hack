@@ -31,6 +31,7 @@ DESTRUCTIVE = re.compile(r"\b(delete|remove|purchase|buy|pay|upgrade|deallocate|
                          r"disable|stop|restart|cancel subscription)\b", re.I)
 SUBMIT_ANYWHERE = re.compile(r"^\s*(save|apply|assign|deploy|submit|confirm|yes|ok|add)\s*$", re.I)
 SUBMIT_ON_FORM = re.compile(r"^\s*(review \+ create|create)\s*$", re.I)
+FORM_URL = re.compile(r"#create/|create", re.I)   # creation wizards: old (#create/...) and React (...Create.ReactView)
 CONFIRM_DIALOG = re.compile(r"type the .{0,40} name|to confirm deletion|are you sure you want to", re.I)
 
 SOM_JS = """() => {
@@ -243,7 +244,7 @@ def make_tools(task: dict, st: dict, role: str, human=None) -> list:
             return err
         url = (BROWSER.obs or {}).get("url", "")
         need = bool(DESTRUCTIVE.search(e["label"]) or SUBMIT_ANYWHERE.match(e["label"])
-                    or ("#create/" in url.lower() and SUBMIT_ON_FORM.match(e["label"])))
+                    or (bool(FORM_URL.search(url)) and SUBMIT_ON_FORM.match(e["label"])))
         if denied := _guard("click", e["label"], url, human, st, need):
             return denied
 
@@ -264,7 +265,7 @@ def make_tools(task: dict, st: dict, role: str, human=None) -> list:
             T._deny("azure-password-field", e["label"])
             return "DENIED by policy: agents never type into password fields; the human logs in."
         url = (BROWSER.obs or {}).get("url", "")
-        need = submit and ("#create/" in url.lower() or bool(CONFIRM_DIALOG.search(BROWSER.run(BROWSER.visible_text))))
+        need = submit and (bool(FORM_URL.search(url)) or bool(CONFIRM_DIALOG.search(BROWSER.run(BROWSER.visible_text))))
         if denied := _guard("submit text into", e["label"], url, human, st, need):
             return denied
 
@@ -284,7 +285,7 @@ def make_tools(task: dict, st: dict, role: str, human=None) -> list:
         if key not in {"Enter", "Escape", "Tab", "ArrowDown", "ArrowUp", "PageDown", "PageUp", "Backspace"}:
             return "ERROR: key not allowed."
         url = (BROWSER.obs or {}).get("url", "")
-        need = key == "Enter" and ("#create/" in url.lower() or bool(CONFIRM_DIALOG.search(BROWSER.run(BROWSER.visible_text))))
+        need = key == "Enter" and (bool(FORM_URL.search(url)) or bool(CONFIRM_DIALOG.search(BROWSER.run(BROWSER.visible_text))))
         if denied := _guard("press Enter on", url, url, human, st, need):
             return denied
 

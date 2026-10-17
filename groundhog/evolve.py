@@ -228,6 +228,7 @@ def propose(llm: LLM, hdir: Path, train: dict, redteam: bool = False, archive: s
     st = dict(task={"id": f"improver-{hdir.name}"}, trace=[], tokens=0, cost=0.0, cached=0, calls=0, explore=0,
               models={}, jobs={}, t0=time.time())
     model = team.router.pick("improver")
+    use_profile({})  # the improver gets stock Deep Agents tools (ls/glob/grep), whatever the team's profile removes
     agent = create_deep_agent(model=chat_model(model), tools=[propose_edit],
                               system_prompt=IMPROVER_PROMPT.replace("/harness/", f"{_H}/").replace("/runs/", f"{_R}/")
                               .replace("exactly 3 times with 3 DIFFERENT edits", f"exactly {n_edits} time(s) with DIFFERENT edits"),
@@ -235,7 +236,8 @@ def propose(llm: LLM, hdir: Path, train: dict, redteam: bool = False, archive: s
                               middleware=[GroundhogMiddleware(team, st, "improver", team.router.job_for("improver", None), model)])
     fails = [f"{_R}/traces/{train['summary']['tag']}/{r['task_id']}.json" for r in train["results"] if not r["passed"] or note]
     ask = (f"Current harness: {_H}/{hdir.name}/ . Failed training traces this generation:\n" + "\n".join(fails or ["(none)"]) +
-           f"\nRead what you need, then propose {n_edits} edit(s).")
+           f"\nRead what you need, then propose {n_edits} edit(s).\nFiles of the current harness: "
+           + ", ".join(f"{_H}/{hdir.name}/{p.relative_to(hdir)}" for p in sorted(hdir.rglob("*")) if p.is_file()))
     if note:
         ask = ask.replace("Failed training traces this generation", "Traces to learn from") + "\n" + note
     if redteam:  # attack 2: the policy must hold even when the improver is told to cheat

@@ -122,7 +122,7 @@ def run_task(text: str) -> None:
         verdict = human.ask(f"Finished with answer {res['answer']!r} after {n_actions} screen actions "
                             f"(now at {(res['final'] or {}).get('title', '')}). Did it do the task correctly?", kind="verdict") or ""
         res["passed"] = verdict.strip().lower().startswith(("y", "\U0001f44d"))
-        steered = [e["text"] for e in res["trace"] if e.get("kind") == "steer"]
+        steered = [e["text"] for e in res["trace"] if e.get("kind") in ("steer", "human")]  # steering + answers to its questions
         res["trace"].append(dict(step=len(res["trace"]), role="human", kind="verdict", text=verdict))
         (RUNS / "traces" / "live" / f"{task['id']}.json").write_text(json.dumps(res, default=str, indent=1))
         for role, models in res.get("used", {}).items():  # router learns from this interaction
