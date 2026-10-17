@@ -47,7 +47,7 @@ class LLM:
     _sems: dict[str, threading.Semaphore] = {}
     _lock = threading.Lock()
 
-    def __init__(self, per_model_concurrency: int = 6, max_attempts: int = 4):
+    def __init__(self, per_model_concurrency: int = 16, max_attempts: int = 4):
         load_env()
         self.client = OpenAI(base_url=os.environ.get("LLM_BASE_URL", "https://api.inference.crusoecloud.com/v1"),
                              api_key=os.environ.get("LLM_API_KEY", "missing"), timeout=120, max_retries=0)

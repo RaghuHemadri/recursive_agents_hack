@@ -128,12 +128,12 @@ class ScreenMiddleware(AgentMiddleware):
     """Shows the agent the current screen at every model call (latest only, never stored in the conversation):
     the marked screenshot for vision roles, the URL and numbered element list for text-only roles."""
 
-    def __init__(self, image: bool):
+    def __init__(self, image: bool, task: dict | None = None):
         super().__init__()
-        self.image = image
+        self.image, self.task = image, task
 
     def wrap_model_call(self, request, handler):
-        obs = WORLD.observation()
+        obs = WORLD.observation(self.task)
         if not obs:
             return handler(request)
         content = [{"type": "text", "text": f"CURRENT SCREEN (latest)\nURL: {obs['url']}\nTitle: {obs['title']}\n"
@@ -294,10 +294,12 @@ class GroundhogMiddleware(AgentMiddleware):
 
 class Team:
     def __init__(self, harness: dict, brain_md: str = "", llm: LLM | None = None, token_budget: int = 600_000,
-                 step_cap: int = 16, trace_dir: Path | None = None, task_timeout_s: int = 480, human=None):
+                 step_cap: int | None = None, trace_dir: Path | None = None, task_timeout_s: int | None = None, human=None):
         self.h, self.brain_md, self.llm, self.human, self.world = harness, brain_md, llm or LLM(), human, WORLD
         self.router = Router(harness["routing"])
-        self.token_budget, self.step_cap, self.trace_dir, self.task_timeout_s = token_budget, step_cap, trace_dir, task_timeout_s
+        self.token_budget, self.trace_dir = token_budget, trace_dir
+        self.step_cap = step_cap or getattr(WORLD, "STEP_CAP", 16)
+        self.task_timeout_s = task_timeout_s or getattr(WORLD, "TASK_TIMEOUT_S", 480)
         self.subs: dict[str, tuple[str, str, str]] = {}  # subagent name -> (role, job, model)
 
     def _human_tools(self, role: str) -> list:
@@ -318,12 +320,23 @@ class Team:
 
         def add(name, role, job, desc, model, avoid=None):
             self.subs[name] = (role, job, model)
-            screen = [ScreenMiddleware(image=True)] if role in getattr(self.world, "IMAGE_ROLES", ()) else []
+            screen = [ScreenMiddleware(image=True, task=st["task"])] if role in getattr(self.world, "IMAGE_ROLES", ()) else []
             specs.append(SubAgent(name=name, description=desc, model=chat_model(model),
                                   tools=self.world.make_tools(st["task"], st, role, self.human) + self._human_tools(role),
                                   system_prompt=f"{GUARDRAILS}\n\n{sp[role]}\n\n{self.h['tool_guide']}", skills=SKILLS,
                                   middleware=[SkillsThenBrain(self.brain_md), *screen, GroundhogMiddleware(self, st, role, job, model, avoid)]))
 
+        for name, spec in (sp.get("specialists") or {}).items():  # specialists created by the improver
+            role = spec.get("role", "analyst") if spec.get("role") in ("scout", "analyst", "verifier") else "analyst"
+            job = self.router.job_for(role, spec.get("job"))
+            avoid = None
+            self.subs[name] = (role, job, self.router.pick(role, job))
+            screen = [ScreenMiddleware(image=True, task=st["task"])] if role in getattr(self.world, "IMAGE_ROLES", ()) else []
+            specs.append(SubAgent(name=name, description=str(spec.get("description", name))[:400], model=chat_model(self.subs[name][2]),
+                                  tools=self.world.make_tools(st["task"], st, role, self.human) + self._human_tools(role),
+                                  system_prompt=f"{GUARDRAILS}\n\n{spec.get('prompt', '')}\n\n{self.h['tool_guide']}", skills=SKILLS,
+                                  middleware=[SkillsThenBrain(self.brain_md), *screen,
+                                              GroundhogMiddleware(self, st, role, job, self.subs[name][2], avoid)]))
         add("scout", "scout", self.router.job_for("scout", None), "Explores what is available (data schema or the UI) and "
             "reports where things are, units and surprises. Does not finish the task.", self.router.pick("scout"))
         for job, spec in cfg["task_jobs"].items():
@@ -345,7 +358,7 @@ class Team:
             model=chat_model(lead_model), tools=[submit, *self._human_tools("lead")],
             system_prompt=f"{GUARDRAILS}\n\n{self.h['lead']}",
             subagents=self._subagents(st), skills=SKILLS, permissions=READ_ONLY,
-            middleware=[SkillsThenBrain(self.brain_md), *([ScreenMiddleware(image=False)] if getattr(self.world, "IMAGE_ROLES", ()) else []),
+            middleware=[SkillsThenBrain(self.brain_md), *([ScreenMiddleware(image=False, task=st["task"])] if getattr(self.world, "IMAGE_ROLES", ()) else []),
                         GroundhogMiddleware(self, st, "lead", self.router.job_for("lead", None), lead_model)])
         return agent, files
 
@@ -383,7 +396,7 @@ class Team:
                    cost=round(st["cost"], 5), cached=st["cached"], calls=st["calls"], explore=st["explore"],
                    models=st["models"], jobs=st["jobs"], secs=round(time.time() - st["t0"], 1), trace=st["trace"],
                    used={r: sorted(v) for r, v in st.get("used", {}).items()},
-                   final=self.world.final_state())
+                   final=self.world.final_state(task))
         if self.trace_dir:
             self.trace_dir.mkdir(parents=True, exist_ok=True)
             (self.trace_dir / f"{task['id']}.json").write_text(json.dumps(res, default=str, indent=1))

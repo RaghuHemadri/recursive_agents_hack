@@ -43,6 +43,23 @@ models:
     price: [0.30, 1.83]
     scores: {tau_bench: 49.0}
     source: https://huggingface.co/nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16
+  Qwen/Qwen3.8-27B:
+    family: qwen
+    vision: true
+    price: [0.10, 0.40]
+    scores: {osworld: 84.3, androidworld: 81.9}   # card table labels partly lost in rendering; footnote-confirmed rows only
+    source: https://huggingface.co/Qwen/Qwen3.8-27B
+  google/gemma-4-31b-it:
+    family: google
+    vision: true
+    price: [0.14, 0.40]
+    scores: {mmmu: 76.9, tau_bench: 76.9}
+    source: https://huggingface.co/google/gemma-4-31B-it
+  openai/gpt-oss-120b:
+    family: openai
+    price: [0.05, 0.20]
+    scores: {gpqa: 80.1, swe_bench: 62.4, tau_bench: 67.8}
+    source: https://huggingface.co/openai/gpt-oss-120b
 # Vision/GUI benchmarks (Azure world): osworld = OSWorld-Verified, webvoyager = WebVoyager (offline),
 #   ocrbench = OCRBench v2 EN. ScreenSpot/Mind2Web/BFCL are not published for these models.
 # Why each benchmark predicts a job (used as default weights in harness/v0/routing.yaml):

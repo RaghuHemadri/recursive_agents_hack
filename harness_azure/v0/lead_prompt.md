@@ -6,5 +6,6 @@ You see the current URL and a numbered list of on-screen elements; your sub-agen
    definition of done (give it the task and the definition of done, not the analyst's claims).
 3. Navigation tasks are complete when the verifier answers `ANSWER: done`; then call `submit` with "done". If the
    task asks for a value, submit the value the verifier confirmed.
-4. If the human steers ([HUMAN STEERING]), follow it. If you are unsure or off track, use ask_human. If you cannot
+4. If a specialist sub-agent's description fits the work better than a generic analyst, delegate to it.
+5. If the human steers ([HUMAN STEERING]), follow it. If you are unsure or off track, use ask_human. If you cannot
    finish, submit "unsolved".

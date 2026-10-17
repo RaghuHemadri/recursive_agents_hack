@@ -1,5 +1,6 @@
 # EDITABLE by the improver. Benchmark weights per job (scores frozen in frozen/benchmarks.yaml).
-# The Azure world allows Nemotron models only (frozen); vision_roles only get image-capable models.
+# Nemotron is the default family; Qwen3.8 VL, Gemma-4 VL (vision) and gpt-oss-120b, DeepSeek-V4-Flash (text) are the
+# alternatives the router and Switchyard's capable tier can pick. vision_roles only get image-capable models.
 jobs:
   planning:          {tau_bench: 0.4, terminal_bench: 0.3, ifbench: 0.3}       # lead (text): plan + definition of done
   tool_exploration:  {webvoyager: 0.5, osworld: 0.3, tau_bench: 0.2}          # scout (vision): explore the portal
@@ -13,6 +14,7 @@ task_jobs:
   form_filling:      {about: "fill in forms and settings step by step",
                       weights: {osworld: 0.4, webvoyager: 0.3, ifbench: 0.3}}
 default_task_job: web_navigation
+default_family: nemotron
 roles: {lead: planning, scout: tool_exploration, analyst: task, verifier: task,
         reflector: reflection, improver: harness_editing}
 vision_roles: [scout, analyst, verifier]

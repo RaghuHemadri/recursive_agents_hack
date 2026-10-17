@@ -74,6 +74,9 @@ class Router:
         if pin := self.cfg.get("pins", {}).get(role):
             return pin
         rows = self.table(self.job_for(role, task_job), capable, vision=role in self.cfg.get("vision_roles", []))
+        fam = self.cfg.get("default_family")  # the default pick stays in this family; capable (escalation) picks may leave it
+        if fam and not capable and any(BENCH[m]["family"] == fam for _, m, *_ in rows):
+            rows = [r for r in rows if BENCH[r[1]]["family"] == fam] + [r for r in rows if BENCH[r[1]]["family"] != fam]
         other_family = avoid_family and any(BENCH[m]["family"] != avoid_family for _, m, *_ in rows)
         for _, m, *_ in rows:
             if _cooldown.get(m, 0) > time.time() or m == avoid_model or (other_family and BENCH[m]["family"] == avoid_family):
@@ -87,9 +90,10 @@ class Router:
         if pin := self.cfg.get("pins", {}).get(role):
             return pin, pin
         cap = self.pick(role, task_job, capable=True)
-        price = lambda m: (BENCH[m]["price"][0] * 3 + BENCH[m]["price"][1]) / 4  # noqa: E731
-        rows = self.table(self.job_for(role, task_job), vision=role in self.cfg.get("vision_roles", []))
-        eff = next((m for _, m, *_ in rows if price(m) < price(cap) and _cooldown.get(m, 0) <= time.time()), cap)
+        eff = self.pick(role, task_job)  # default family (Nemotron) pick
+        if eff == cap:  # same model: use the next-best model as the other tier so routing has a real choice
+            rows = self.table(self.job_for(role, task_job), vision=role in self.cfg.get("vision_roles", []))
+            eff = next((m for _, m, *_ in rows if m != cap and _cooldown.get(m, 0) <= time.time()), cap)
         return cap, eff
 
     def job_for(self, role: str, task_job: str | None) -> str:

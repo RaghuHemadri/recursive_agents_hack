@@ -11,13 +11,11 @@ click (approve/deny icons). After each task you give thumbs up/down. That verdic
     harness v{N+1} (git commit), thumbs down rolls it back. The unattended evolve loop (same improver, validation gate)
     still runs with `python -m groundhog.evolve evolve`.
 """
-import difflib
 import json
 import os
 import queue
 import re
 import sqlite3
-import subprocess
 import threading
 import time
 
@@ -27,8 +25,9 @@ from flask import Flask, jsonify, request, send_file  # noqa: E402
 
 from .agent import Team, load_harness  # noqa: E402
 from .brain import Brain  # noqa: E402
-from .config import HARNESS, ROOT, RUNS, world  # noqa: E402
-from .evolve import _log, current_version, learn, materialise, propose, remember_validations  # noqa: E402
+from .config import HARNESS, RUNS, world  # noqa: E402
+from .evolve import current_version, learn, propose, remember_validations  # noqa: E402
+from .evolve import new_version as _new_version  # noqa: E402
 from .human import Human  # noqa: E402
 from .llm import LLM  # noqa: E402
 from .router import BENCH, Router  # noqa: E402
@@ -59,21 +58,9 @@ def harness_dir() -> tuple:
 
 
 def new_version(edit: dict, reason: str) -> None:
-    """Applies one improver edit immediately as harness v{N+1} (git commit); every later task uses it."""
-    with harness_lock:
-        n = current_version()
-        base = HARNESS / f"v{n}"
-        dest = materialise(base, [edit], HARNESS / f"v{n + 1}")
-        old = (base / edit["file"]).read_text().splitlines() if (base / edit["file"]).exists() else []
-        diff = "\n".join(difflib.unified_diff(old, (dest / edit["file"]).read_text().splitlines(), f"v{n}/{edit['file']}",
-                                              f"v{n + 1}/{edit['file']}", lineterm=""))
-        msg = re.sub(r"[^A-Za-z0-9 ,.:;()+-]", "", edit["hypothesis"])[:150]
-        subprocess.run(["git", "add", HARNESS.name], cwd=ROOT, capture_output=True)
-        subprocess.run(["git", "commit", "-qm", f"{HARNESS.name}/v{n + 1}: {msg}"], cwd=ROOT, capture_output=True)
-    _log("archive.jsonl", dict(ts=time.time(), gen=f"live-{int(time.time())}", version=n + 1, status="accepted",
-                               files=[edit["file"]], hypotheses=[edit["hypothesis"]], reason=reason, diff=diff))
-    brain.record_validation("gate", edit["file"], edit["hypothesis"], True, f"applied as v{n + 1}: {reason}"[:300], "live", "live")
-    note("harness", f"Harness v{n + 1}: updated {edit['file']}", edit["hypothesis"], diff=diff, version=n + 1, reason=reason)
+    rec = _new_version(edit, reason, brain)
+    note("harness", f"Harness v{rec['version']}: updated {edit['file']}", edit["hypothesis"], diff=rec["diff"],
+         version=rec["version"], reason=reason)
 
 
 def improve(note_text: str, why: str, task_id: str) -> None:
