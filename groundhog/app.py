@@ -286,26 +286,26 @@ def _harness_inventory(d) -> dict:
 @app.get("/api/results")
 def api_results():
     ex = _jl("experiment.jsonl")
+    keys = ["steps", "model_calls", "tokens", "cost", "secs", "delegations", "scout_calls", "specialist_calls", "guards",
+            "escalations", "fallbacks", "tool_errors", "submit_rejects", "sy_capable", "sy_efficient"]
     curve = []
     for e in ex:
         if e.get("event") != "heldout":
             continue
-        pt = e["per_task"]
-        lo, sh = [x for x in pt if x["long"]], [x for x in pt if not x["long"]]
+        pt = [x for x in e["per_task"] if not x.get("infra_error")]
+        n = max(1, len(pt))
+        avg = {k: round(sum(x.get(k, 0) or 0 for x in pt) / n, 4 if k == "cost" else 1) for k in keys}
         solved = [x for x in pt if x["passed"]]
-        curve.append(dict(seen=e["seen"], version=e["version"], n=len(pt), solved=len(solved), long_n=len(lo),
-                          long_solved=sum(x["passed"] for x in lo), short_n=len(sh), short_solved=sum(x["passed"] for x in sh),
-                          steps=round(sum(x["steps"] for x in pt) / max(1, len(pt)), 1),
-                          long_steps=round(sum(x["steps"] for x in lo) / max(1, len(lo)), 1),
-                          cost=round(sum(x["cost"] for x in pt), 4),
-                          cost_per_solved=round(sum(x["cost"] for x in pt) / len(solved), 4) if solved else None,
-                          tokens=e["summary"].get("tokens_per_task"), per_task=pt))
+        curve.append(dict(seen=e["seen"], version=e["version"], n=len(pt), solved=len(solved),
+                          self_ok=sum(1 for x in pt if x.get("self_ok")), avg=avg, inventory=e.get("inventory", {}),
+                          cost_per_solved=round(sum(x.get("cost", 0) for x in pt) / len(solved), 4) if solved else None,
+                          per_task=pt))
     train = [dict(batch=e["batch"], version=e["version"], solved=e["summary"]["solved"], n=e["summary"]["n"], per_task=e["per_task"])
              for e in ex if e.get("event") == "train"]
-    adapt = [e for e in ex if e.get("event") == "adapt"]
     versions = sorted(int(p.name[1:]) for p in HARNESS.glob("v*") if p.name[1:].isdigit())
     growth = [dict(version=v, **_harness_inventory(HARNESS / f"v{v}")) for v in versions]
     edits = [a for a in _jl("archive.jsonl") if a.get("status") == "accepted"]
+    mid = _jl("midtask.jsonl")
     bs = brain.bullets(include_hidden=True)
     log = _jl("routing.jsonl")
     calls = [x for x in log if "role" in x and "event" not in x and "error" not in x]
@@ -315,12 +315,14 @@ def api_results():
         m["calls"] += 1
         m["cost"] = round(m["cost"] + x.get("cost", 0), 4)
     sy = [x for x in log if x.get("event") == "switchyard"]
-    den = _jl("denials.jsonl")
     kinds = {}
-    for d in den:
+    for d in _jl("denials.jsonl"):
         k = d["kind"].split(":")[0]
         kinds[k] = kinds.get(k, 0) + 1
-    return jsonify(curve=curve, train=train, adapt=adapt, growth=growth, edits=edits[-12:],
+    return jsonify(curve=curve, train=train, growth=growth, edits=edits[-14:], keys=keys,
+                   midtask=[m for m in mid if m.get("kind") in ("lesson", "harness", "quarantine")][-30:],
+                   midtask_counts=dict(lessons=sum(1 for m in mid if m.get("kind") == "lesson"),
+                                       versions=sum(1 for m in mid if m.get("kind") == "harness")),
                    brain=dict(total=len(bs), active=sum(1 for b in bs if not b["retired"] and not b["quarantined"]),
                               trusted=sum(1 for b in bs if b["trusted"]), quarantined=sum(1 for b in bs if b["quarantined"]),
                               retired=sum(1 for b in bs if b["retired"]), created=sorted(b["created"] for b in bs if b.get("created")),
@@ -493,18 +495,18 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:6px 8px;b
 <div class="card pad" style="margin-top:14px"><h3>Adaptive router: published benchmark prior vs measured success</h3><div class="muted">Bars: grey = benchmark prior, green = belief after real outcomes. It moves with every 👍/👎.</div><div class="grid3" id="r-tables"></div></div></div>
 
 <div class="view" id="v-results">
-<div class="card pad"><h3>Experiment: does the team get better on Azure tasks it has never seen?</h3>
-<div class="muted" id="x-meta"></div>
-<div class="grid2" style="margin-top:10px"><div><b>Held-out success vs training tasks seen</b><svg id="x-curve" width="100%" height="230" viewBox="0 0 560 230"></svg>
-<div class="muted"><span style="color:#76b900">■</span> all held-out tasks <span style="color:#7c3aed">■</span> long-tail (&gt;20 steps) <span style="color:#0e9f6e">■</span> short</div></div>
-<div><b>Before vs after (held-out)</b><div id="x-head"></div></div></div></div>
+<div class="card pad"><h3>Does the team get better on hard Azure tasks it has never seen?</h3><div class="muted" id="x-meta"></div>
+<div class="grid2" style="margin-top:10px"><div><b>Held-out (4 hard long-tail tasks) after 0, 5, 10 training tasks</b>
+<svg id="x-curve" width="100%" height="230" viewBox="0 0 560 230"></svg>
+<div class="muted"><span style="color:#76b900">■</span> solved (grader) <span style="color:#0b5cff">■</span> screen actions / task <span style="color:#7c3aed">■</span> model calls / task</div></div>
+<div><b>Before vs after, averaged over the held-out tasks</b><div id="x-head"></div></div></div></div>
+<div class="card pad" style="margin-top:14px"><h3>Every held-out task, every evaluation: how it was done, not only whether</h3><div id="x-matrix"></div></div>
 <div class="grid2" style="margin-top:14px"><div class="card pad"><h3>The harness grew: skills and specialist sub-agents</h3><div id="x-growth"></div></div>
-<div class="card pad"><h3>Knowledge accumulated (brain)</h3><svg id="x-brain" width="100%" height="110" viewBox="0 0 560 110"></svg><div id="x-brainstats"></div></div></div>
-<div class="grid2" style="margin-top:14px"><div class="card pad"><h3>Model routing (NeMo Switchyard + adaptive router)</h3><div id="x-models"></div></div>
-<div class="card pad"><h3>Safety and cost</h3><div id="x-safety"></div></div></div>
-<div class="card pad" style="margin-top:14px"><h3>Same held-out task: first evaluation vs latest</h3><div id="x-before"></div></div>
+<div class="card pad"><h3>Adapted in the middle of tasks (no human feedback)</h3><div id="x-mid"></div></div></div>
+<div class="grid2" style="margin-top:14px"><div class="card pad"><h3>Knowledge accumulated (brain)</h3><svg id="x-brain" width="100%" height="110" viewBox="0 0 560 110"></svg><div id="x-brainstats"></div><div id="x-lessons"></div></div>
+<div class="card pad"><h3>Model routing (NeMo Switchyard + adaptive router)</h3><div id="x-models"></div><h3 style="margin-top:12px">Safety and cost</h3><div id="x-safety"></div></div></div>
 <div class="grid2" style="margin-top:14px"><div class="card pad"><h3>What the improver created (verbatim)</h3><div id="x-edits"></div></div>
-<div class="card pad"><h3>From the brain</h3><div id="x-lessons"></div><h3 style="margin-top:12px">Training batches</h3><div id="x-train"></div></div></div>
+<div class="card pad"><h3>Training batches</h3><div id="x-train"></div></div></div>
 </div>
 <div class="view" id="v-brain"><div class="grid2"><div class="card pad"><h3>Lessons in the shared brain</h3><svg id="growth" width="100%" height="90" viewBox="0 0 600 90" preserveAspectRatio="none"></svg><div id="b-list"></div></div>
 <div class="card pad"><h3>Validations: what worked and what failed</h3><div id="b-val"></div></div></div></div>
@@ -576,25 +578,29 @@ async function refresh(){try{const S=await (await fetch('/api/summary')).json();
   $('#h-files').innerHTML=Object.entries(H.files).map(([k,c])=>`<details><summary><b>${esc(k)}</b></summary><pre class="diff">${esc(c)}</pre></details>`).join('')}
 
  if(v==='results'){const X=await (await fetch('/api/results')).json(),C=X.curve;
-  $('#x-meta').innerHTML=`20 real Azure portal tasks (8 long-tail) · held-out ${C[0]?C[0].n:8} tasks evaluated after every 4 training tasks · unattended, ${X.done?'finished':'running'} · ${X.started?Math.round((X.now-X.started)/60):0} min · $${X.spent}`;
-  const W=560,H=200,px=s=>40+s/12*(W-60),py=f=>H-10-f*(H-30);let g='<line x1="40" y1="190" x2="540" y2="190" stroke="#ccc"/><line x1="40" y1="20" x2="40" y2="190" stroke="#ccc"/>';
-  [0,4,8,12].forEach(s=>g+=`<text x="${px(s)-4}" y="205" font-size="11" fill="#666">${s}</text>`);[0,.5,1].forEach(f=>g+=`<text x="8" y="${py(f)+4}" font-size="11" fill="#666">${f*100}%</text>`);
-  g+='<text x="230" y="225" font-size="11" fill="#666">training tasks seen</text>';
-  const line=(k,n,c)=>{const pts=C.filter(p=>p[n]).map(p=>[px(p.seen),py(p[k]/p[n])]);if(!pts.length)return;g+=`<polyline fill="none" stroke="${c}" stroke-width="3" points="${pts.map(q=>q.join(',')).join(' ')}"/>`+pts.map(q=>`<circle cx="${q[0]}" cy="${q[1]}" r="4" fill="${c}"/>`).join('')};
-  line('solved','n','#76b900');line('long_solved','long_n','#7c3aed');line('short_solved','short_n','#0e9f6e');
-  C.forEach(p=>g+=`<text x="${px(p.seen)+6}" y="${py(p.solved/p.n)-8}" font-size="11" font-weight="700">${p.solved}/${p.n} · v${p.version}</text>`);$('#x-curve').innerHTML=g;
-  const a=C[0],b=C[C.length-1],row=(l,f)=>`<tr><td>${l}</td><td>${a?f(a):'-'}</td><td><b>${b?f(b):'-'}</b></td></tr>`;
-  $('#x-head').innerHTML=a?`<table><tr><th></th><th>first (0 seen, v${a.version})</th><th>latest (${b.seen} seen, v${b.version})</th></tr>`+row('held-out solved',p=>p.solved+' / '+p.n)+row('long-tail solved',p=>p.long_solved+' / '+p.long_n)+row('short solved',p=>p.short_solved+' / '+p.short_n)+row('screen actions per task',p=>p.steps)+row('actions per long-tail task',p=>p.long_steps)+row('$ per solved task',p=>p.cost_per_solved??'-')+row('tokens per task',p=>p.tokens)+'</table><div class="muted">n = '+a.n+' held-out tasks per point; small samples, differences of 1-2 tasks are suggestive.</div>':'<i>first evaluation running...</i>';
-  $('#x-growth').innerHTML='<table><tr><th>version</th><th>skills</th><th>sub-agents</th></tr>'+X.growth.map(g=>`<tr><td><b>v${g.version}</b></td><td>${g.skills.length} <span class="muted">${esc(g.skills.join(', '))}</span></td><td>${g.subagents.length} <span class="muted">${esc(g.specialists.join(', ')||'scout, analyst, verifier')}</span></td></tr>`).join('')+'</table>';
+  $('#x-meta').innerHTML=`14 real Azure portal tasks · 10 training (4 long-tail) · 4 hard held-out, evaluated after 0, 5 and 10 training tasks · unattended, no human feedback · ${X.done?'finished':'running'} · ${X.started?Math.round((X.now-X.started)/60):0} min · $${X.spent}`;
+  const W=560,H=200,px=s=>60+s/10*(W-100),py=f=>H-10-f*(H-30);let g='<line x1="60" y1="190" x2="520" y2="190" stroke="#ccc"/><line x1="60" y1="20" x2="60" y2="190" stroke="#ccc"/>';
+  [0,5,10].forEach(s=>g+=`<text x="${px(s)-4}" y="205" font-size="11" fill="#666">${s}</text>`);g+='<text x="210" y="225" font-size="11" fill="#666">training tasks seen</text>';
+  const mx=k=>Math.max(1,...C.map(p=>p.avg[k]||0));
+  const line=(f,c,lab)=>{const pts=C.map(p=>[px(p.seen),py(f(p)),lab(p)]);if(!pts.length)return;g+=`<polyline fill="none" stroke="${c}" stroke-width="3" points="${pts.map(q=>q[0]+','+q[1]).join(' ')}"/>`+pts.map(q=>`<circle cx="${q[0]}" cy="${q[1]}" r="4" fill="${c}"/><text x="${q[0]+6}" y="${q[1]-6}" font-size="11" fill="${c}" font-weight="700">${q[2]}</text>`).join('')};
+  line(p=>p.solved/p.n,'#76b900',p=>p.solved+'/'+p.n+' v'+p.version);line(p=>p.avg.steps/mx('steps'),'#0b5cff',p=>p.avg.steps);line(p=>p.avg.model_calls/mx('model_calls'),'#7c3aed',p=>p.avg.model_calls);
+  $('#x-curve').innerHTML=g;
+  const a=C[0],b=C[C.length-1],L={steps:'screen actions',model_calls:'model calls',tokens:'tokens',cost:'$ cost',secs:'seconds',delegations:'sub-agent delegations',scout_calls:'scout explorations',specialist_calls:'specialist delegations',guards:'guards tripped (loops/caps)',escalations:'escalations to capable model',fallbacks:'provider fallbacks',tool_errors:'tool errors',submit_rejects:'unverified submits blocked',sy_capable:'Switchyard → capable',sy_efficient:'Switchyard → efficient'};
+  const lower=new Set(['steps','model_calls','tokens','cost','secs','guards','escalations','fallbacks','tool_errors','submit_rejects','scout_calls']);
+  const dlt=(k,x,y)=>{if(x==null||y==null||x===y)return '';const better=lower.has(k)?y<x:y>x;return ` <span class="badge ${better?'b-e':'b-r'}">${y>x?'+':''}${Math.round((y-x)/Math.max(Math.abs(x),1e-9)*100)}%</span>`};
+  $('#x-head').innerHTML=a?`<table><tr><th>per held-out task (avg)</th><th>v${a.version} · 0 seen</th><th>v${b.version} · ${b.seen} seen</th></tr><tr><td><b>solved (grader)</b></td><td>${a.solved}/${a.n}</td><td><b>${b.solved}/${b.n}</b></td></tr><tr><td>completed by own verifier</td><td>${a.self_ok}/${a.n}</td><td>${b.self_ok}/${b.n}</td></tr><tr><td>skills · specialist sub-agents</td><td>${(a.inventory.skills||[]).length} · ${(a.inventory.specialists||[]).length}</td><td>${(b.inventory.skills||[]).length} · ${(b.inventory.specialists||[]).length}</td></tr>`+X.keys.map(k=>`<tr><td>${L[k]||k}</td><td>${a.avg[k]}</td><td><b>${b.avg[k]}</b>${C.length>1?dlt(k,a.avg[k],b.avg[k]):''}</td></tr>`).join('')+`<tr><td>$ per solved task</td><td>${a.cost_per_solved??'-'}</td><td>${b.cost_per_solved??'-'}</td></tr></table><div class="muted">n = ${a.n} held-out tasks per evaluation; small sample: read changes as trends.</div>`:'<i>first evaluation running...</i>';
+  const tids=[...new Set(C.flatMap(p=>p.per_task.map(x=>x.task)))];
+  $('#x-matrix').innerHTML=C.length?'<table><tr><th>held-out task</th>'+C.map(p=>`<th>after ${p.seen} (v${p.version})</th>`).join('')+'</tr>'+tids.map(t=>`<tr><td style="max-width:300px"><span class="badge b-p">long-tail</span> ${esc(((X.tasks[t]||{}).q||t).slice(0,120))}</td>`+C.map(p=>{const x=p.per_task.find(y=>y.task===t);if(!x)return '<td>-</td>';return `<td>${x.passed?'✅ solved':x.self_ok?'⚠ claimed done':'❌ not solved'}<div class="muted">${x.steps} actions · ${x.model_calls} calls · ${x.delegations} delegations<br>${x.guards} guards · ${x.escalations} esc · ${x.tool_errors} errors · ${Math.round(x.secs)}s · $${(x.cost||0).toFixed(3)}${x.specialist_calls?'<br><b>used specialist</b>':''}</div>${x.shot?`<a href="/shots/${x.shot}" target="_blank"><img src="/shots/${x.shot}" style="width:180px;border:1px solid #ddd;border-radius:6px;margin-top:4px"></a>`:''}</td>`}).join('')+'</tr>').join('')+'</table>':'<i>running...</i>';
+  $('#x-growth').innerHTML='<table><tr><th>version</th><th>skills</th><th>sub-agents</th></tr>'+X.growth.map(g=>`<tr><td><b>v${g.version}</b></td><td>${g.skills.length} <span class="muted">${esc(g.skills.join(', '))}</span></td><td>${g.subagents.length} <span class="muted">${esc(g.specialists.length?'+ '+g.specialists.join(', '):'scout, analyst, verifier')}</span></td></tr>`).join('')+'</table>';
+  $('#x-mid').innerHTML=`<div><span class="badge b-g">${X.midtask_counts.lessons} lessons</span> <span class="badge b-g">${X.midtask_counts.versions} harness versions</span> created while tasks were still running</div>`+X.midtask.slice().reverse().map(m=>`<div class="lessoncard">${m.kind==='harness'?'🛠':m.kind==='quarantine'?'🛡':'🧠'} <b>${esc(m.title)}</b> <span class="muted">${esc((m.task||'').replace('AZ-',''))}${m.at_step!=null?' · at step '+m.at_step:''}</span><div>${esc(m.text)}</div>${m.diff?`<details><summary>diff</summary>${diffHtml(m.diff)}</details>`:''}</div>`).join('');
   const ts=X.brain.created;let bg='';if(ts.length>1){const t0=ts[0],t1=ts[ts.length-1];bg=`<polyline fill="none" stroke="#76b900" stroke-width="3" points="${ts.map((t,i)=>((t-t0)/(t1-t0+1e-9)*530+15)+','+(100-(i+1)/ts.length*85)).join(' ')}"/>`}$('#x-brain').innerHTML=bg+`<text x="15" y="14" font-size="12" fill="#555">${ts.length} lessons over the run</text>`;
   $('#x-brainstats').innerHTML=`<span class="badge b-g">${X.brain.active} active</span> <span class="badge b-g">${X.brain.trusted} trusted</span> <span class="badge b-r">${X.brain.quarantined} quarantined</span> <span class="badge">${X.brain.retired} retired</span>`;
+  $('#x-lessons').innerHTML=X.brain.top.map(b=>`<div class="lessoncard">${b.trusted?'<span class="badge b-g">trusted</span> ':''}<span class="badge">${esc(b.type)}</span> ${esc(b.text)}</div>`).join('');
   const tot=X.models.reduce((s,m)=>s+m.calls,0)||1,nem=X.models.filter(m=>m.nemotron).reduce((s,m)=>s+m.calls,0);
-  $('#x-models').innerHTML=`<div><span class="badge b-g">${Math.round(nem/tot*100)}% of calls on Nemotron</span> <span class="badge b-e">Switchyard efficient ${X.switchyard.efficient}</span> <span class="badge b-p">capable ${X.switchyard.capable}</span> <span class="badge b-y">escalations ${X.escalations}</span> <span class="badge">fallbacks ${X.fallbacks}</span></div><table style="margin-top:8px">`+X.models.map(m=>`<tr><td>${mn(m.model)}</td><td style="width:45%">${bar(m.calls/tot,m.nemotron?'#76b900':'#94a3b8')}</td><td>${m.calls}</td><td>$${m.cost}</td></tr>`).join('')+'</table>';
-  $('#x-safety').innerHTML='<table>'+`<tr><td>Destructive / submitting clicks attempted unattended → denied</td><td><b>${X.denials['azure-guarded']||0}</b></td></tr><tr><td>Navigation outside Azure → denied</td><td><b>${X.denials['azure-egress']||0}</b></td></tr><tr><td>Password fields typed into</td><td><b>0</b> (${X.denials['azure-password-field']||0} attempts denied)</td></tr><tr><td>Improver reads of non-allowed files → denied</td><td><b>${X.denials['improver']||0}</b></td></tr><tr><td>Total cost (Crusoe)</td><td><b>$${X.spent}</b></td></tr><tr><td>Prompt tokens served from cache</td><td><b>${X.cached.toLocaleString()}</b></td></tr><tr><td>Human interventions during the run</td><td><b>0</b></td></tr></table>`;
-  if(a&&b){const before=Object.fromEntries(a.per_task.map(x=>[x.task,x]));$('#x-before').innerHTML='<table><tr><th>task</th><th>first</th><th>latest</th></tr>'+b.per_task.map(x=>{const y=before[x.task]||{},T=X.tasks[x.task]||{};const cell=(r,s)=>r?`${r.passed?'✅':'❌'} ${r.steps} actions${r.shot?`<br><a href="/shots/${r.shot}" target="_blank"><img src="/shots/${r.shot}" style="width:210px;border:1px solid #ddd;border-radius:6px"></a>`:''}`:'-';return `<tr><td style="max-width:330px">${T.long?'<span class="badge b-p">long-tail</span> ':''}${esc((T.q||x.task).slice(0,140))}</td><td>${cell(y)}</td><td>${cell(x)}</td></tr>`}).join('')+'</table>'}
-  $('#x-edits').innerHTML=X.edits.slice().reverse().map(e=>`<div class="lessoncard"><span class="badge b-g">v${e.version}</span> <b>${esc(e.files.join(', '))}</b><div>${esc(e.hypotheses.join('; '))}</div><div class="muted">${esc(e.reason||'')}</div><details><summary>diff</summary>${diffHtml(e.diff||'')}</details></div>`).join('')||'<i>edits appear after the first training batch</i>';
-  $('#x-lessons').innerHTML=X.brain.top.map(b=>`<div class="lessoncard">${b.trusted?'<span class="badge b-g">trusted</span> ':''}<span class="badge">${esc(b.type)}</span> ${esc(b.text)} <span class="muted">(+${b.helpful}/-${b.harmful})</span></div>`).join('')||'<i>lessons appear after the first training batch</i>';
-  $('#x-train').innerHTML='<table><tr><th>batch</th><th>harness</th><th>solved</th><th>tasks</th></tr>'+X.train.map(t=>`<tr><td>${t.batch}</td><td>v${t.version}</td><td>${t.solved}/${t.n}</td><td class="muted">${t.per_task.map(x=>(x.passed?'✅':'❌')+' '+x.task.replace('AZ-','')+' ('+x.steps+')').join(' · ')}</td></tr>`).join('')+'</table>'}
+  $('#x-models').innerHTML=`<div><span class="badge b-g">${Math.round(nem/tot*100)}% of calls on NVIDIA Nemotron</span> <span class="badge b-e">Switchyard efficient ${X.switchyard.efficient}</span> <span class="badge b-p">capable ${X.switchyard.capable}</span> <span class="badge b-y">escalations ${X.escalations}</span> <span class="badge">fallbacks ${X.fallbacks}</span></div><table style="margin-top:8px">`+X.models.map(m=>`<tr><td>${mn(m.model)}</td><td style="width:45%">${bar(m.calls/tot,m.nemotron?'#76b900':'#94a3b8')}</td><td>${m.calls}</td><td>$${m.cost}</td></tr>`).join('')+'</table>';
+  $('#x-safety').innerHTML='<table>'+`<tr><td>Destructive / submitting clicks attempted → denied</td><td><b>${X.denials['azure-guarded']||0}</b></td></tr><tr><td>Navigation outside Azure → denied</td><td><b>${X.denials['azure-egress']||0}</b></td></tr><tr><td>Password fields typed into</td><td><b>0</b></td></tr><tr><td>Improver reads of non-allowed files → denied</td><td><b>${X.denials['improver']||0}</b></td></tr><tr><td>Total cost</td><td><b>$${X.spent}</b></td></tr><tr><td>Prompt tokens from cache</td><td><b>${X.cached.toLocaleString()}</b></td></tr><tr><td>Human interventions</td><td><b>0</b></td></tr></table>`;
+  $('#x-edits').innerHTML=X.edits.slice().reverse().map(e=>`<div class="lessoncard"><span class="badge b-g">v${e.version}</span> <b>${esc(e.files.join(', '))}</b> <span class="muted">${esc(e.reason||'')}</span><div>${esc(e.hypotheses.join('; '))}</div><details><summary>diff</summary>${diffHtml(e.diff||'')}</details></div>`).join('')||'<i>edits appear during training</i>';
+  $('#x-train').innerHTML='<table><tr><th>batch</th><th>harness</th><th>solved</th><th>tasks (actions)</th></tr>'+X.train.map(t=>`<tr><td>${t.batch}</td><td>v${t.version}</td><td>${t.solved}/${t.n}</td><td class="muted">${t.per_task.map(x=>(x.passed?'✅':'❌')+' '+x.task.replace('AZ-','')+' ('+x.steps+')').join(' · ')}</td></tr>`).join('')+'</table>'}
  if(v==='brain'){const B=await (await fetch('/api/brain')).json(),bs=B.bullets;
   const ts=bs.map(b=>b.created).sort();if(ts.length>1){const t0=ts[0],t1=ts[ts.length-1];$('#growth').innerHTML=`<polyline fill="none" stroke="#76b900" stroke-width="3" points="${ts.map((t,i)=>((t-t0)/(t1-t0)*580+10)+','+(85-(i+1)/ts.length*75)).join(' ')}"/><text x="10" y="14" font-size="12" fill="#5b6573">${ts.length} lessons over time</text>`}
   $('#b-list').innerHTML=bs.slice().reverse().map(b=>`<div class="lessoncard">${b.quarantined?'<span class="badge b-r">quarantined</span> ':''}${b.trusted?'<span class="badge b-g">trusted</span> ':''}${b.retired?'<span class="badge">retired</span> ':''}<span class="badge">${esc(b.type)}</span> <span class="muted">${esc(b.scope)}</span><div>${b.retired?'<s>':''}${esc(b.text)}</div><div class="muted">helped ${b.helpful} · hurt ${b.harmful}</div></div>`).join('');
