@@ -42,6 +42,20 @@ Routing from benchmarks alone (before any measured outcomes; `python -m groundho
 Nemotron-3-Ultra has the best scores in the file but isn't served on our Crusoe account, so it's excluded
 automatically. Measured outcomes then move picks (e.g. the scout moved after Nano went 3/7 in the first run).
 
+## Where the prompts live (what the improver can change)
+
+| layer | file | editable |
+|---|---|---|
+| Deep Agents' own harness: base prompt/suffix, built-in tool descriptions (`task`, `ls`, `read_file`, `write_file`, `edit_file`, `delete`, `glob`, `grep`), excluded tools/middleware | [harness/v0/deepagents_profile.yaml](harness/v0/deepagents_profile.yaml) → installed as the Deep Agents `HarnessProfile` | **yes** |
+| stock Deep Agents text it overrides (+ LangChain's tuned Nemotron-3-Ultra profile as an example) | [harness/DEEPAGENTS_DEFAULTS.md](harness/DEEPAGENTS_DEFAULTS.md) (generated from the installed `deepagents`) | read-only reference |
+| lead prompt (Deep Agents `system_prompt`) | [harness/v0/lead_prompt.md](harness/v0/lead_prompt.md) | **yes** |
+| sub-agent prompts (Deep Agents `SubAgent.system_prompt`) | [harness/v0/subagents.yaml](harness/v0/subagents.yaml) | **yes** |
+| tool guide, skills (Deep Agents `skills`), model routing | `tool_guide.md`, `skills/*/SKILL.md`, `routing.yaml` | **yes** |
+| guardrails (first in every prompt), tools, checker, sandbox | `frozen/`, `groundhog/` | no |
+
+Every agent's system prompt, in order: guardrails → its own prompt → Deep Agents profile base/suffix → Deep Agents'
+tool sections → skills index → BRAIN.md. Each proposed edit must still build into Deep Agents graphs before it runs.
+
 ## Layout
 
 | path | what | editable by improver |

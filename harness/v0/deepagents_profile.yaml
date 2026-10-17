@@ -1,0 +1,9 @@
+# EDITABLE: Deep Agents' own harness (a Deep Agents HarnessProfile), applied to every agent of this harness version.
+# Stock defaults it overrides are in harness/DEEPAGENTS_DEFAULTS.md. Fields (all optional):
+#   base_system_prompt: text placed after each agent's own prompt (empty in stock Deep Agents)
+#   system_prompt_suffix: text appended after that
+#   tool_description_overrides: {tool_name: new description}  tools: task, ls, read_file, write_file, edit_file, delete, glob, grep
+#   excluded_tools: [tool names to remove]                     e.g. ls, glob, write_file, edit_file, delete
+#   excluded_middleware: [middleware names to remove]          (Filesystem/SubAgent are required; invalid edits are rejected)
+# general_purpose_subagent is forced off by the frozen code (it would bypass routing, tools and guards).
+{}

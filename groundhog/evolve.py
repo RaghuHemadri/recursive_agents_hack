@@ -26,14 +26,15 @@ from deepagents.backends import FilesystemBackend
 from langchain_core.tools import tool
 
 from . import world
-from .agent import GroundhogMiddleware, Team, chat_model, load_harness
+from .agent import (GroundhogMiddleware, Team, build_check, chat_model, export_deepagents_defaults, load_harness,
+                    use_profile)
 from .brain import Brain
 from .llm import LLM
 from .router import Router
 
 ROOT = Path(__file__).resolve().parent.parent
 RUNS, HARNESS = ROOT / "runs", ROOT / "harness"
-EDITABLE = {"lead_prompt.md", "subagents.yaml", "tool_guide.md", "routing.yaml"}  # + skills/<name>/SKILL.md
+EDITABLE = {"lead_prompt.md", "subagents.yaml", "tool_guide.md", "routing.yaml", "deepagents_profile.yaml"}  # + skills/<name>/SKILL.md
 FROZEN_MARKERS = ("frozen/", "guardrails", "world.py", "tools.py", "answers.json", "eval/", "benchmarks.yaml")
 
 
@@ -193,8 +194,10 @@ routing weights). You have READ-ONLY filesystem tools (ls, read_file, glob, grep
 Everything else (answers, checker, guardrails, tools, validation and test runs) is denied, and you cannot write files.
 Study the failed traces the user lists and the archive, then call `propose_edit` exactly 3 times with 3 DIFFERENT edits.
 Each edit gives the FULL new content of ONE editable file of the current harness (lead_prompt.md, subagents.yaml,
-tool_guide.md, routing.yaml, or skills/<name>/SKILL.md with Deep Agents name/description frontmatter), changes fewer
-than 40 lines, and states a falsifiable hypothesis. General lessons only: never include answer values or task ids.
+tool_guide.md, routing.yaml, deepagents_profile.yaml, or skills/<name>/SKILL.md with Deep Agents name/description
+frontmatter), changes fewer than 40 lines, and states a falsifiable hypothesis. deepagents_profile.yaml is Deep Agents'
+own harness: system_prompt_suffix, tool_description_overrides for built-in tools (task, ls, read_file, write_file,
+edit_file, delete, glob, grep), excluded_tools, excluded_middleware; the stock text is in /harness/DEEPAGENTS_DEFAULTS.md. General lessons only: never include answer values or task ids.
 routing.yaml maps published benchmarks to jobs; change weights, cost_weight, pins or escalation if the measured stats
 show a model under-performing its benchmark prior."""
 READABLE = ["/harness", "/harness/**", "/runs", "/runs/traces", "/runs/traces/*-train", "/runs/traces/*-train/**",
@@ -207,6 +210,8 @@ IMPROVER_PERMISSIONS = [FilesystemPermission(operations=["write"], paths=["/**"]
 def propose(llm: LLM, hdir: Path, train: dict, redteam: bool = False, archive: str = "archive.jsonl") -> list[dict]:
     """The improver is a Deep Agent with read-only access to harness/ and training runs; it returns edits via a tool."""
     files = {str(p.relative_to(hdir)): p.read_text() for p in sorted(hdir.rglob("*")) if p.is_file()}
+    if not (HARNESS / "DEEPAGENTS_DEFAULTS.md").exists():
+        export_deepagents_defaults(HARNESS / "DEEPAGENTS_DEFAULTS.md")
     edits = []
 
     @tool
@@ -256,6 +261,13 @@ def propose(llm: LLM, hdir: Path, train: dict, redteam: bool = False, archive: s
                     r.pick("analyst", j), r.pick("verifier", j)
             except Exception as ex:
                 why = f"invalid routing.yaml: {ex!r}"
+        if not why:  # every edit must still load and build into Deep Agents graphs
+            try:
+                build_check(materialise(hdir, [e], RUNS / "candidates" / "_build_check"))
+            except Exception as ex:
+                why = f"harness does not build: {ex!r}"[:300]
+            finally:
+                use_profile(load_harness(hdir)["profile"])
         e["diff_lines"] = n
         if why:
             _log(archive, dict(ts=time.time(), status="rejected_pre", file=e.get("file"), hypothesis=e.get("hypothesis"), reason=why))

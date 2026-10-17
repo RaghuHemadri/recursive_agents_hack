@@ -6,6 +6,9 @@ routing.yaml, each bound to the model the benchmark router picked for that job. 
 therefore the per-task routing decision. Harness skills use Deep Agents `skills` (StateBackend: files live in agent
 state). BRAIN.md is appended by `SkillsThenBrain`, which takes Deep Agents' skills slot, so every agent's system prompt
 is: fixed prompt (guardrails, role, Deep Agents tool docs, skills index) and then BRAIN.md last, in a stable order.
+Deep Agents' OWN harness (its base system prompt / suffix, the built-in tool descriptions such as `task`, `ls`,
+`read_file`, `write_todos`, and which built-in tools/middleware exist) comes from harness/vN/deepagents_profile.yaml,
+installed as the active Deep Agents `HarnessProfile` for every agent built from that harness version.
 
 GroundhogMiddleware adds: per-agent step cap, repeated-call guard, per-task token budget and wall-clock timeout,
 429/503 fallback,
@@ -14,12 +17,14 @@ Switchyard-style escalation after tool errors, cost/caching log and the trace us
 import json
 import os
 import re
+import threading
 import time
 from pathlib import Path
 
 import yaml
-from deepagents import (FilesystemPermission, GeneralPurposeSubagentProfile, HarnessProfile, SubAgent, create_deep_agent,
-                        register_harness_profile)
+from deepagents import FilesystemPermission, SubAgent, create_deep_agent, register_harness_profile
+from deepagents.profiles import HarnessProfileConfig
+from deepagents.profiles.harness import harness_profiles as _hp
 from deepagents.backends import StateBackend
 from deepagents.backends.utils import create_file_data
 from deepagents.middleware._utils import append_to_system_message
@@ -43,9 +48,22 @@ BRAIN_PROMPT = ("<team_brain>\n{brain}\n</team_brain>\nThese are curated team le
                 "contradicts a lesson, say so in your report.")
 READ_ONLY = [FilesystemPermission(operations=["write"], paths=["/skills/**"], mode="deny")]
 SKILLS = ["/skills/"]
-# Deep Agents' built-in general-purpose sub-agent would bypass the team's routing, tools and guards: disable it for the
-# OpenAI-compatible (Crusoe) models this process uses.
-register_harness_profile("openai", HarnessProfile(general_purpose_subagent=GeneralPurposeSubagentProfile(enabled=False)))
+_profile_lock, _active_profile = threading.Lock(), [None]
+
+
+def use_profile(cfg: dict | None) -> None:
+    """Installs a harness version's Deep Agents profile for the OpenAI-compatible (Crusoe) models, replacing the previous
+    one (Deep Agents' register_harness_profile merges, so excluded tools would accumulate across versions).
+    shortcut: one active profile per process; run different harness versions sequentially, never in parallel threads."""
+    cfg = dict(cfg or {})
+    # frozen: the built-in general-purpose sub-agent would bypass routing, tools and guards
+    cfg["general_purpose_subagent"] = {"enabled": False}
+    key = json.dumps(cfg, sort_keys=True)
+    with _profile_lock:
+        if _active_profile[0] != key:
+            register_harness_profile("openai", HarnessProfileConfig.from_dict(cfg))  # also runs Deep Agents' bootstrap
+            _hp._HARNESS_PROFILES["openai"] = _hp._coerce_runtime_harness_profile(HarnessProfileConfig.from_dict(cfg))
+            _active_profile[0] = key
 _models: dict[str, ChatOpenAI] = {}
 
 
@@ -63,7 +81,9 @@ def load_harness(hdir: Path) -> dict:
                 subagents=yaml.safe_load((hdir / "subagents.yaml").read_text()),
                 tool_guide=(hdir / "tool_guide.md").read_text(),
                 skills={f"/skills/{p.parent.name}/SKILL.md": p.read_text() for p in sorted(hdir.glob("skills/*/SKILL.md"))},
-                routing=yaml.safe_load((hdir / "routing.yaml").read_text()))
+                routing=yaml.safe_load((hdir / "routing.yaml").read_text()),
+                profile=yaml.safe_load((hdir / "deepagents_profile.yaml").read_text()) or {}
+                if (hdir / "deepagents_profile.yaml").exists() else {})
 
 
 def _num(x):
@@ -253,6 +273,17 @@ class Team:
                 self.router.pick("verifier", job, avoid_family=avoid), avoid)
         return specs
 
+    def build(self, st: dict, submit):
+        """Builds the lead Deep Agent (and its sub-agents) under this harness version's Deep Agents profile."""
+        use_profile(self.h.get("profile"))
+        lead_model = self.router.pick("lead")
+        files = {k: create_file_data(v) for k, v in self.h["skills"].items()}
+        agent = create_deep_agent(
+            model=chat_model(lead_model), tools=[submit], system_prompt=f"{GUARDRAILS}\n\n{self.h['lead']}",
+            subagents=self._subagents(st, self._tools(st["task"]["db"])), skills=SKILLS, permissions=READ_ONLY,
+            middleware=[SkillsThenBrain(self.brain_md), GroundhogMiddleware(self, st, "lead", self.router.job_for("lead", None), lead_model)])
+        return agent, files
+
     def run(self, task: dict) -> dict:
         st = dict(task=task, trace=[], tokens=0, cost=0.0, cached=0, calls=0, explore=0, models={}, jobs={},
                   t0=time.time(), verifier_answer=None, answer=None)
@@ -267,14 +298,7 @@ class Team:
             st["answer"] = a
             return "submitted. You are done; reply with one short final sentence."
 
-        data_tools = self._tools(task["db"])
-        lead_model = self.router.pick("lead")
-        files = {k: create_file_data(v) for k, v in self.h["skills"].items()}
-        subagents = self._subagents(st, data_tools)
-        agent = create_deep_agent(
-            model=chat_model(lead_model), tools=[submit], system_prompt=f"{GUARDRAILS}\n\n{self.h['lead']}",
-            subagents=subagents, skills=SKILLS, permissions=READ_ONLY,
-            middleware=[SkillsThenBrain(self.brain_md), GroundhogMiddleware(self, st, "lead", self.router.job_for("lead", None), lead_model)])
+        agent, files = self.build(st, submit)
         try:
             agent.invoke({"messages": [{"role": "user", "content": f"Question: {task['question']}"}], "files": files},
                          config={"recursion_limit": 150})
@@ -291,3 +315,49 @@ class Team:
             self.trace_dir.mkdir(parents=True, exist_ok=True)
             (self.trace_dir / f"{task['id']}.json").write_text(json.dumps(res, default=str, indent=1))
         return res
+
+
+def build_check(hdir: Path) -> None:
+    """Raises if a harness version cannot be loaded and built into Deep Agents graphs (no model calls)."""
+    team = Team(load_harness(hdir))
+    st = dict(task={"id": "build-check", "db": "gpuco_A.db"}, trace=[], tokens=0, cost=0.0, cached=0, calls=0, explore=0,
+              models={}, jobs={}, t0=time.time())
+    @tool
+    def submit(answer: str) -> str:
+        """Submit the final answer."""
+        return ""
+
+    team.build(st, submit)
+
+
+def export_deepagents_defaults(path: Path) -> None:
+    """Writes what stock Deep Agents sends the model (system-prompt sections and built-in tool descriptions) plus
+    LangChain's tuned Nemotron-3-Ultra profile, so the improver can see what deepagents_profile.yaml overrides."""
+    from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
+    from langchain_core.utils.function_calling import convert_to_openai_tool
+    seen = {}
+
+    class Capture(GenericFakeChatModel):
+        def bind_tools(self, tools, **k):
+            seen["tools"] = [convert_to_openai_tool(t)["function"] for t in tools]
+            return self
+
+        def _generate(self, messages, *a, **k):
+            seen["system"] = _text(messages[0].content)
+            return super()._generate(messages, *a, **k)
+
+    create_deep_agent(model=Capture(messages=iter([AIMessage(content="ok")])), system_prompt="<YOUR lead_prompt.md>",
+                      subagents=[SubAgent(name="example", description="example sub-agent", system_prompt="x")],
+                      skills=SKILLS).invoke({"messages": [{"role": "user", "content": "hi"}], "files": {}})
+    ultra = {k: v for k, v in _hp._HARNESS_PROFILES.items() if "nemotron" in k.lower()}
+    out = ["# Stock Deep Agents harness (read-only reference; override it in deepagents_profile.yaml)", "",
+           "## System prompt the lead receives (your prompt first, then Deep Agents' sections)", "```",
+           seen.get("system", ""), "```", "", "## Built-in tool descriptions (keys usable in tool_description_overrides)"]
+    for t in seen.get("tools", []):
+        out += ["", f"### {t['name']}", "```", t.get("description", ""), "```"]
+    for k, prof in ultra.items():
+        out += ["", f"## Example: LangChain's tuned profile `{k}` (for Nemotron-3-Ultra)", "```",
+                f"system_prompt_suffix: {prof.system_prompt_suffix!r}"[:4000],
+                f"tool_description_overrides: {sorted(prof.tool_description_overrides)}",
+                f"excluded_tools: {sorted(prof.excluded_tools)}", "```"]
+    path.write_text("\n".join(out) + "\n")
