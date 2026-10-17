@@ -56,6 +56,20 @@ button:focus-visible { outline: 3px solid var(--task); outline-offset: 2px; }
 .note { color: var(--muted); font-size: 13px; margin: 0; }
 
 /* scene parts */
+.world { display: grid; grid-template-columns: 1.6fr 1fr; gap: 18px; align-items: start; }
+@media (max-width: 900px) { .world { grid-template-columns: 1fr; } }
+.shotwrap { position: relative; overflow: hidden; border-radius: 10px; }
+.shotwrap .shot { filter: saturate(.55); }
+/* mark [15] Storage accounts: x 252-350, y 97-196 on a 1366x860 capture */
+.focus { position: absolute; left: 17.9%; top: 10.4%; width: 8.3%; height: 13.4%; border: 3px solid var(--task); border-radius: 8px;
+  box-shadow: 0 0 0 9999px rgba(15, 18, 30, .35); }
+.focus span { position: absolute; left: 50%; top: 100%; transform: translate(-50%, 8px); white-space: nowrap; font: 700 13px var(--mono);
+  color: #fff; background: var(--task); padding: 3px 8px; border-radius: 6px; }
+.how { display: grid; gap: 10px; }
+.hstep { display: grid; gap: 2px; padding: 10px 12px; border-radius: 10px; background: var(--soft); font-size: 14.5px; }
+.hstep b { font-family: var(--display); font-size: 16px; }
+.hstep code { font: 600 13px var(--mono); color: var(--task); }
+
 .shot { display: block; width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--line); }
 .big { font: 800 clamp(26px, 3.4vw, 40px)/1.1 var(--display); letter-spacing: -0.02em; margin: 0 0 12px; text-wrap: balance; }
 .mono { font-family: var(--mono); font-size: 13px; }
@@ -115,7 +129,7 @@ ul.plain { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
       <section class="cap" data-i="0">
         <span class="step">the world</span><span class="pill ink">Computer use</span>
         <h2>It works in the real Azure portal</h2>
-        <p>Nemotron agents drive a real browser. They see a screenshot with numbered marks on every clickable thing, and act by number.</p>
+        <p>Nemotron agents drive a real browser. Before every step, Groundhog numbers everything clickable on the screenshot, and the model answers with a number instead of guessing pixels.</p>
         <p class="src">runs_azure/screens · account details hidden</p>
       </section>
       <section class="cap" data-i="1" hidden>
@@ -177,7 +191,18 @@ ul.plain { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
     <div>
       <div class="stage">
         <section class="scene" data-i="0">
-          <img class="shot rv" src="real/agent_view_azure_home.jpg" alt="Azure portal home as the agent sees it: a numbered mark on every clickable element">
+          <div class="world">
+            <div class="shotwrap rv">
+              <img class="shot" src="real/agent_view_azure_home.jpg" alt="Azure portal home as the agent sees it: Groundhog has drawn a numbered box on every clickable element">
+              <div class="focus" aria-hidden="true"><span>click(15)</span></div>
+            </div>
+            <div class="how">
+              <div class="hstep rv" style="--t:.4s"><b>1 · Screenshot</b><span>Groundhog's browser tool captures the real Azure page.</span></div>
+              <div class="hstep rv" style="--t:.8s"><b>2 · Numbered boxes</b><span>The tool, not Azure, draws a box and number on every clickable element. Colours only separate neighbours.</span></div>
+              <div class="hstep rv" style="--t:1.2s"><b>3 · Model answers with a number</b><span>Nemotron sees the image plus this list, and replies <code>click(15)</code>. The tool clicks it.</span></div>
+              <div class="diff rv" style="--t:1.6s"><span class="ctx">[9]  Search resources, services, and docs</span><span class="ctx">[13] Create a resource</span><span class="add">[15] Storage accounts   ← click(15)</span><span class="ctx">[17] Resource groups</span><span class="ctx">[19] Virtual machines</span></div>
+            </div>
+          </div>
         </section>
 
         <section class="scene" data-i="1" hidden>
