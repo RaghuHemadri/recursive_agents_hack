@@ -328,6 +328,10 @@ def reset(task: dict) -> None:
     def go():
         if not BROWSER.page.url.startswith(HOME):
             BROWSER.page.goto(HOME, timeout=45_000)
+        for _ in range(20):  # the portal bounces through /auth/login before landing on #home when already signed in
+            if "#home" in BROWSER.page.url or "login.microsoftonline" in BROWSER.page.url:
+                break
+            time.sleep(1)
         BROWSER.observe()
     BROWSER.run(go)
 

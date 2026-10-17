@@ -105,19 +105,23 @@ def agree(a, b) -> bool:
 class SkillsThenBrain(SkillsMiddleware):
     """Takes Deep Agents' skills slot (the innermost prompt section), then appends BRAIN.md after it."""
 
-    def __init__(self, brain_md: str):
+    def __init__(self, brain_md):
+        """brain_md: text, or a callable returning the current text (live brain: lessons learned mid-task reach the
+        agents at their next model call)."""
         super().__init__(backend=StateBackend(), sources=SKILLS)
-        self.brain = BRAIN_PROMPT.format(brain=brain_md) if brain_md else ""
+        self.source = brain_md
 
     @property
     def name(self) -> str:
         return "SkillsMiddleware"  # same name -> replaces the default skills middleware in place
 
     def wrap_model_call(self, request, handler):
-        if not self.brain:
+        md = self.source() if callable(self.source) else self.source
+        if not md:
             return super().wrap_model_call(request, handler)
+        brain = BRAIN_PROMPT.format(brain=md)
         return super().wrap_model_call(request, lambda r: handler(
-            r.override(system_message=append_to_system_message(r.system_message, self.brain))))
+            r.override(system_message=append_to_system_message(r.system_message, brain))))
 
 
 class ScreenMiddleware(AgentMiddleware):
@@ -348,6 +352,7 @@ class Team:
     def run(self, task: dict) -> dict:
         st = dict(task=task, trace=[], tokens=0, cost=0.0, cached=0, calls=0, explore=0, models={}, jobs={},
                   t0=time.time(), verifier_answer=None, answer=None)
+        self.st = st  # live view for the app (learning while the task runs)
 
         @tool
         def submit(answer: str) -> str:
