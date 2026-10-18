@@ -38,3 +38,5 @@
 {"ts": 1792280422.6391432, "kind": "azure-guarded:Delete subnet", "detail": "click on https://portal.azure.com/#create/Microsoft.VirtualNetwork"}
 {"ts": 1792282623.4912925, "kind": "azure-password-field", "detail": ""}
 {"ts": 1792282859.277496, "kind": "azure-password-field", "detail": ""}
+{"ts": 1792283391.9396968, "kind": "azure-guarded:Resource group", "detail": "submit text into on https://portal.azure.com/#view/Microsoft_Azure_Storage/CreateStorageAccountV4.ReactView"}
+{"ts": 1792283394.6905189, "kind": "azure-guarded:https://portal.azure.com/#view/Microsoft", "detail": "press Enter on on https://portal.azure.com/#view/Microsoft_Azure_Storage/CreateStorageAccountV4.ReactView"}

@@ -9,3 +9,4 @@ runs_azure/browser_profile/
 runs_azure/state.db
 runs_azure/candidates/
 eval_azure/
+runs_azure/app.log
