@@ -1,0 +1,95 @@
+{
+ "task_id": "AZ-keyvault_list",
+ "question": "Open the list of key vaults.",
+ "trace": [
+  {
+   "step": 0,
+   "t": 5.2,
+   "role": "scout",
+   "model": "nvidia/NVIDIA-Nemotron-3.5-Super-VL",
+   "kind": "route",
+   "text": "Switchyard -> efficient: Qwen3.8-27B (fall_open)"
+  },
+  {
+   "step": 1,
+   "t": 8.0,
+   "role": "scout",
+   "model": "Qwen/Qwen3.8-27B",
+   "kind": "think",
+   "text": "\n\nI'll start by reading the azure-portal skill to understand the best navigation approach.\n\n"
+  },
+  {
+   "step": 2,
+   "t": 8.0,
+   "role": "scout",
+   "model": "Qwen/Qwen3.8-27B",
+   "kind": "tool",
+   "tool": "read_file",
+   "args": {
+    "file_path": "/skills/azure-portal/SKILL.md",
+    "limit": 1000
+   },
+   "result": "@@ lines 1-11 of 11 @@\n---\nname: azure-portal\ndescription: How the Azure portal is laid out and the fastest ways to open services and blades\n---\n- The global search bar at the top (\"Search resources, services, and docs\") opens any service by name: type the\n  service name, then click the matching item under \"Services\".\n- \"Home\" (portal.azure.com/#home) shows Azure services and recent resources; the menu (three lines, top left) lists\n  services too.\n- Pages open as \"blades\" to the right; the breadcrumb at the top goes back; the X at the top right closes a blade.\n- List pages have a toolbar (+ Create, Refresh, ...) and a filter box above the grid.\n- Slow blades show loading dots: wait, then observe again."
+  },
+  {
+   "step": 3,
+   "t": 9.7,
+   "role": "scout",
+   "model": "Qwen/Qwen3.8-27B",
+   "kind": "think",
+   "text": "\n\nI'm on the Azure portal home page. Per the skill, the fastest way to open a service is the global search bar. Let me search for \"Key Vault\".\n\n"
+  },
+  {
+   "step": 4,
+   "t": 11.0,
+   "role": "scout",
+   "model": "Qwen/Qwen3.8-27B",
+   "kind": "tool",
+   "tool": "click",
+   "args": {
+    "element": 9
+   },
+   "result": "Clicked [9] 'Search resources, services, and docs (G+/)'.\nNow at: https://portal.azure.com/#home - 'Home - Microsoft Azure'. 54 numbered elements (see CURRENT SCREEN)."
+  },
+  {
+   "step": 5,
+   "t": 13.8,
+   "role": "scout",
+   "model": "Qwen/Qwen3.8-27B",
+   "kind": "think",
+   "text": "\n\nThe search bar is active. Let me type \"Key Vault\" to search for the service.\n\n"
+  },
+  {
+   "step": 6,
+   "t": 15.2,
+   "role": "scout",
+   "model": "Qwen/Qwen3.8-27B",
+   "kind": "tool",
+   "tool": "click",
+   "args": {
+    "element": 9
+   },
+   "result": "Clicked [9] 'Search resources, services, and docs (G+/)'.\nNow at: https://portal.azure.com/#home - 'Home - Microsoft Azure'. 58 numbered elements (see CURRENT SCREEN)."
+  },
+  {
+   "step": 7,
+   "t": 18.1,
+   "role": "scout",
+   "model": "Qwen/Qwen3.8-27B",
+   "kind": "think",
+   "text": "\n\nThe search dropdown is open. Now I'll type \"Key Vault\" into the search box.\n\n"
+  },
+  {
+   "step": 8,
+   "t": 18.1,
+   "role": "scout",
+   "model": "Qwen/Qwen3.8-27B",
+   "kind": "guard",
+   "tool": "click",
+   "args": {
+    "element": 9
+   },
+   "text": "repeated call"
+  }
+ ]
+}

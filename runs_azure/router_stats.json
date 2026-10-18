@@ -1,0 +1,44 @@
+{
+ "planning": {
+  "nvidia/Nemotron-3.5-Lightning-30B-A3B": [
+   8,
+   11
+  ],
+  "nvidia/NVIDIA-Nemotron-3.5-Super-VL": [
+   3,
+   3
+  ]
+ },
+ "web_navigation": {
+  "nvidia/NVIDIA-Nemotron-3.5-Super-VL": [
+   8,
+   9
+  ],
+  "Qwen/Qwen3.8-27B": [
+   6,
+   7
+  ]
+ },
+ "screen_reading": {
+  "Qwen/Qwen3.8-27B": [
+   2,
+   2
+  ],
+  "nvidia/NVIDIA-Nemotron-3.5-Super-VL": [
+   2,
+   2
+  ]
+ },
+ "tool_exploration": {
+  "nvidia/NVIDIA-Nemotron-3.5-Super-VL": [
+   2,
+   2
+  ]
+ },
+ "form_filling": {
+  "nvidia/NVIDIA-Nemotron-3.5-Super-VL": [
+   1,
+   2
+  ]
+ }
+}

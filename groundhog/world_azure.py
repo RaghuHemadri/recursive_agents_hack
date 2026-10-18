@@ -487,11 +487,35 @@ ALL = {
                     "Users and tell me how many users there are, then Groups and tell me how many groups there are, then App "
                     "registrations (All applications) and tell me how many there are. Finish on App registrations.",
                     r"RegisteredApps|ApplicationsListBlade", r"App registrations", answer=r"[0-9a-f]{8}-[0-9a-f]{4}", long=True),
+    "sql_wizard": T("sql_wizard", "Open the create SQL database form. Basics tab: create a new resource group named gh-sql-rg, "
+                    "database name gh-db-01, create a new server named gh-sql-20261017 in region East US with authentication "
+                    "method Use Microsoft Entra-only authentication, and set Workload environment to Development. Networking tab: "
+                    "connectivity method Public endpoint, allow Azure services No. Tags tab: add tags env=demo and owner=groundhog."
+                    + NO_CREATE, title=r"Create SQL Database", text=[r"gh-db-01", r"gh-sql-20261017"], long=True),
+    "aks_wizard": T("aks_wizard", "Open the create Kubernetes cluster form. Basics tab: create a new resource group named gh-aks-rg, "
+                    "cluster preset Dev/Test, cluster name gh-aks-01, region East US, availability zones None. Node pools tab: "
+                    "change the agentpool node size to Standard_B2s and its node count to 1. Tags tab: add tag env=demo."
+                    + NO_CREATE, title=r"Create Kubernetes cluster", text=[r"gh-aks-01", r"agentpool"], long=True),
+    "policy_tour": T("policy_tour", "Open Azure Policy. Open Definitions, filter by category Tags and tell me how many built-in "
+                     "definitions there are. Then open the definition 'Require a tag on resource groups' and tell me its effect. "
+                     "Then open Assignments and tell me how many assignments exist on my subscription. Finish on Assignments.",
+                     r"Microsoft_Azure_Policy", r"Assignments", answer=r"\d", long=True),
+    # held-out tasks in the families the training batches teach: baseline nav, rg wizard (batch 1), storage wizard + IAM (batch 2)
+    "vnet_list": T("vnet_list", "Open the list of virtual networks.", r"virtualNetworks", r"^Virtual networks\b"),
+    "rg_wizard2": T("rg_wizard2", "Open the form to create a new resource group. Name it gh-ho-rg, region West US 2. On the Tags "
+                    "tab add two tags: env=test and team=groundhog." + NO_CREATE,
+                    title=r"Create a resource group", text=[r"gh-ho-rg", r"team"], long=True),
+    "storage_wizard2": T("storage_wizard2", "Open the create storage account form. Basics tab: create a new resource group named "
+                         "gh-st2-rg, storage account name ghsth20261017, region West US 2, redundancy Locally-redundant storage "
+                         "(LRS)." + NO_CREATE, title=r"Create a storage account", text=[r"ghsth20261017", r"West US 2"], long=True),
+    "sub_iam": T("sub_iam", "Open my subscription's Access control (IAM), go to the Role assignments tab and tell me how many "
+                 "role assignments there are. Finish on the Role assignments tab.",
+                 r"/users|RoleAssignments", r"Access control", answer=r"\d", long=True),
 }
-# 10 training tasks in 2 batches of 5 (3 short + 2 long-tail each); 4 hard long-tail held-out tasks
+# 10 training tasks in 2 batches of 5 (3 short + 2 long-tail each); 4 held-out tasks from the trained families
 TRAIN_BATCHES = [["rg_list", "vm_list", "sub_name", "vm_wizard", "rg_tags_wizard"],
                  ["storage_list", "keyvault_list", "entra_users", "storage_wizard", "sub_tour"]]
-HELDOUT = ["webapp_wizard", "vnet_wizard", "keyvault_wizard", "entra_tour"]
+HELDOUT = ["vnet_list", "rg_wizard2", "storage_wizard2", "sub_iam"]  # was: webapp_wizard, sql_wizard, aks_wizard, policy_tour
 ALL = {k: v for k, v in ALL.items() if k in {t for b in TRAIN_BATCHES for t in b} | set(HELDOUT)}
 TASKS = {"train": [ALL[t] for b in TRAIN_BATCHES for t in b], "heldout": [ALL[t] for t in HELDOUT]}
 TASKS["val"], TASKS["test"] = TASKS["heldout"], TASKS["heldout"]

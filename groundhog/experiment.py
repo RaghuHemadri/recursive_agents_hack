@@ -41,7 +41,7 @@ def inventory(v: int) -> dict:
 
 def row(x: dict) -> dict:
     m = x.get("metrics") or {}
-    return dict(task=x["task_id"], passed=x["passed"], self_ok=x["answer"] is not None, long=W.ALL[x["template"]]["long"],
+    return dict(task=x["task_id"], passed=x["passed"], self_ok=x["answer"] is not None, long=W.ALL.get(x["template"], {}).get("long", True),
                 answer=x["answer"], shot=(x.get("final") or {}).get("shot"), infra_error=bool(x.get("infra_error")),
                 steps=m.get("actions", 0), **{k: v for k, v in m.items() if k != "actions"})
 

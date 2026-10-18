@@ -16,6 +16,7 @@ from rapidfuzz import fuzz
 
 ROOT = Path(__file__).resolve().parent.parent
 TOKEN_CAP_CHARS = 6000  # ~1500 tokens
+HUMAN = "human"  # source_task of hand-written bullets: always rendered, never retired or rewritten by reflectors
 # instruction-like / exfiltration text that can only come from untrusted (tenant-written) data
 INJECTION = re.compile(r"https?://|\bupload\b|\bexfiltrat|\bsend (?:the |all )?(?:data|results)\b|note to (?:ai|agents?)|"
                        r"\bteam policy\b|ignore (?:all |previous |prior )+instructions|\baudit uplift\b", re.I)
@@ -58,7 +59,7 @@ class Brain:
         """Stable order (type, id) for prompt-cache hits; capped at ~1500 tokens, best-scored kept if over cap."""
         bs = self.bullets()
         while sum(len(b["text"]) + 30 for b in bs) > TOKEN_CAP_CHARS:
-            bs.remove(min(bs, key=lambda b: (b["helpful"] - b["harmful"], b["id"])))
+            bs.remove(min(bs, key=lambda b: (b["source_task"] == HUMAN, b["helpful"] - b["harmful"], b["id"])))
         out = "\n".join(f"- [{b['id']}|{b['type']}|{b['scope']}{'|trusted' if b['trusted'] else ''}] {b['text']}" for b in bs)
         val = self.render_validations()
         return out + (f"\n\n## Validation record (verifier checks that worked / failed)\n{val}" if val else "")
@@ -126,7 +127,7 @@ class Brain:
             if old["helpful"] - old["harmful"] + old["trusted"] > int(passed):
                 events.append(f"contradiction: kept #{cid} (counters), dropped new")
                 return False, events
-            db.execute("UPDATE bullets SET retired=1 WHERE id=?", (cid,))
+            db.execute("UPDATE bullets SET retired=1 WHERE id=? AND source_task!=?", (cid, HUMAN))
             live.pop(cid)
             events.append(f"contradiction: retired #{cid} (counters)")
         return True, events
@@ -176,12 +177,12 @@ class Brain:
                     if not self.naive and self.tainted(text, trace, op.get("cites")):
                         events.append(f"QUARANTINE update #{op['id']}")
                         continue
-                    db.execute("UPDATE bullets SET text=? WHERE id=?", (text, op["id"]))
+                    db.execute("UPDATE bullets SET text=? WHERE id=? AND source_task!=?", (text, op["id"], HUMAN))
                     events.append(f"update #{op['id']}")
                 elif op.get("op") == "retire" and isinstance(op.get("id"), int):
-                    db.execute("UPDATE bullets SET retired=1 WHERE id=?", (op["id"],))
+                    db.execute("UPDATE bullets SET retired=1 WHERE id=? AND source_task!=?", (op["id"], HUMAN))
                     events.append(f"retire #{op['id']}")
-            db.execute("UPDATE bullets SET retired=1 WHERE harmful >= helpful + 2 AND retired=0")
+            db.execute("UPDATE bullets SET retired=1 WHERE harmful >= helpful + 2 AND retired=0 AND source_task!=?", (HUMAN,))
             for e in events:
                 self._log(db, f"{task_id}: {e}")
         return events

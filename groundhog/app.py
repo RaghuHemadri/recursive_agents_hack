@@ -304,9 +304,10 @@ def api_results():
                                                         inventory=e.get("inventory", {})))
     vers = {e["seen"]: e for e in ex if e.get("event") == "heldout" and not e.get("rerun")}
     with sqlite3.connect(RUNS / "state.db") as db:  # corrected-policy re-runs, read live as tasks finish
-        rr = {}
-        for tag, res in db.execute("SELECT tag, res FROM results WHERE tag LIKE 'reheldout-after%'"):
-            rr.setdefault(tag, []).append(_row(json.loads(res)))
+        rr, ho = {}, {t["id"] for t in W.load_tasks("heldout")}
+        for tag, tid, res in db.execute("SELECT tag, task_id, res FROM results WHERE tag LIKE 'reheldout-after%' AND tag NOT LIKE '%-curated'"):
+            if tid in ho:  # older held-out sets stay in the db; show only the current one
+                rr.setdefault(tag, []).append(_row(json.loads(res)))
     from .experiment import inventory as _inv
     for tag, pt in rr.items():
         cur = tag.endswith("-curated")
@@ -644,7 +645,10 @@ async function poll(){try{const d=await (await fetch('/events?after='+after)).js
   if(d.waiting_kind==='verdict')box.innerHTML=`<div class="ask" style="margin:8px">${esc(d.waiting)}<div class="btns"><button class="big" onclick="send('yes')">👍</button><button class="big" onclick="$('#why').style.display='flex'">👎</button></div><div id="why" style="display:none;gap:6px;margin-top:8px"><input id="whyt" style="flex:1;padding:6px" placeholder="What went wrong? (optional)"><button class="big" style="font-size:14px" onclick="send('no'+($('#whyt').value?': '+$('#whyt').value:''))">Send</button></div></div>`;
   else if(d.waiting_kind==='approval')box.innerHTML=`<div class="ask" style="margin:8px">🛡 ${esc(d.waiting)}<div class="btns"><button class="big" onclick="send('yes')">✅ Approve</button><button class="big" onclick="send('no')">❌ Deny</button></div></div>`;
   else if(d.waiting)box.innerHTML=`<div class="ask" style="margin:8px">❓ ${esc(d.waiting)}<div class="muted" style="font-weight:400">Type your answer below.</div></div>`}
- $('#shot').src='/screen.jpg?t='+Date.now()}catch(e){} setTimeout(poll,1200)}
+ }catch(e){} reshot();setTimeout(poll,1200)}
+// load off-screen and swap when done: resetting src every poll aborted slow loads, so the image never updated
+let shotLoading=false;function reshot(){if(shotLoading)return;shotLoading=true;const i=new Image();
+ i.onload=()=>{$('#shot').src=i.src;shotLoading=false};i.onerror=()=>{shotLoading=false};i.src='/screen.jpg?t='+Date.now()}
 function bar(v,c){return `<div class="bar"><i style="width:${Math.round(v*100)}%;background:${c}"></i></div>`}
 async function refresh(){try{const S=await (await fetch('/api/summary')).json();
  $('#k-ver').textContent='v'+S.version;$('#k-ver-d').textContent=S.versions_learned+' version(s) learned';$('#k-les').textContent=S.lessons;
