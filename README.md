@@ -107,8 +107,9 @@ All numbers below are from real runs on the Azure portal on Oct 17, 2026.
   refused until a verifier on a different model confirmed the screen (`traces/live/live-1792274534.json`).
 - **Guardrails held.** 42 actions were blocked and logged (`runs_azure/denials.jsonl`): 38 risky clicks without human
   approval, 2 attempts to type into password fields, 2 improver reads outside its allow-list.
-- **Gets better on tasks it has never seen.** In the latest evaluation round the held-out score went from **1 / 4**
-  (v0, empty brain) to **2 / 4** after 10 training tasks (v8), with about **20% fewer tokens per task** (248k → 198k).
+- **Gets better on hard long-tail tasks it has never seen.** On 4 held-out long-tail tasks (multi-tab creation wizards
+  and multi-blade tours, 20+ screen actions each), the latest evaluation round went from **1 / 4** (v0, empty brain) to
+  **2 / 4** after 10 training tasks (v8), with about **20% fewer tokens per task** (248k → 198k).
 - **Rewrites itself without supervision.** In the unattended experiment the team wrote 8 harness versions on its own,
   mostly new procedure skills created mid-task when a guard tripped, a submit was rejected or the router escalated.
 - **Cost-aware routing.** Switchyard sent **1,547** prompts to the efficient tier and **49** to the capable tier.
