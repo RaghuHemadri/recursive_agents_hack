@@ -34,6 +34,35 @@ it into brain lessons the running agents read at their next model call, and on t
 harness edit applied immediately; new skills are injected into the running task's prompts. After a batch, the team also
 learns from outcomes **it judged itself** (verifier-confirmed submit); the grader is used only to report results.
 
+### Version N+1: every update is a new harness version
+
+The team does not wait for a batch of tasks to improve. Each time something happens that the improver can learn from,
+it writes **one** edit (a new skill, a new specialist sub-agent, or a prompt / routing change) with a stated hypothesis,
+and it becomes **harness v(N+1) immediately**, as a git commit with its diff in `runs_azure/archive.jsonl`.
+On Oct 17 the Azure harness went from **v0 to v15**:
+
+| what triggered the new version | versions |
+|---|---|
+| a submit was rejected mid-task (the verifier said "not done") | 5 |
+| the router escalated mid-task (the agent was looping) | 4 |
+| a guard tripped mid-task (step cap, repeated actions) | 2 |
+| a message from the user, live | 2 |
+| outcomes of a training batch, judged by the team's own verifier | 1 |
+| human-curated cleanup of v1–v8 | 1 |
+
+Most edits are new procedure skills (`skills/azure-*-procedure/SKILL.md`, e.g. the storage-account wizard or verifying
+a list page), plus lead-prompt edits and new specialist sub-agents in `subagents.yaml`. For unattended runs,
+`groundhog/evolve.py` adds a promotion gate (+2 solved on held-out tasks, 100% security tests, leak filter).
+
+### Shared Brain: a curated playbook, not a notes file
+
+`runs_azure/brain.db` stores each lesson with its **type** (fact, pitfall, recipe, check), **scope**, **source task**,
+**helped / hurt counters** and **trusted / quarantined / retired** flags, and renders them as `BRAIN.md` at the end of
+every agent's prompt in a stable order. A reflector proposes add / update / retire changes citing trace steps; a single
+curator applies them from a queue, so parallel agents never conflict. The curator merges near-duplicates, retires a lesson
+when hurt ≥ helped + 2, marks it trusted only after a later task that used it passes, and quarantines lessons derived
+from page text that contain instructions or URLs (2 quarantined so far).
+
 ## Models (Crusoe)
 
 All five NVIDIA models served on Crusoe are the default for every role: **Nemotron 3.5 Super VL** and **Nemotron 3 Nano
