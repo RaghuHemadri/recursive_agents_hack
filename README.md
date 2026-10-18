@@ -105,25 +105,29 @@ All numbers below are from real runs on the Azure portal on Oct 17, 2026.
   and the same task **passed two minutes later** (19 steps, $0.014).
 - **Can't declare victory early.** On a 10-step "create a resource group" task the lead tried to submit twice; both were
   refused until a verifier on a different model confirmed the screen (`traces/live/live-1792274534.json`).
-- **Guardrails held.** 40 actions were blocked and logged (`runs_azure/denials.jsonl`): 36 risky clicks without human
+- **Guardrails held.** 42 actions were blocked and logged (`runs_azure/denials.jsonl`): 38 risky clicks without human
   approval, 2 attempts to type into password fields, 2 improver reads outside its allow-list.
+- **Gets better on tasks it has never seen.** In the latest evaluation round the held-out score went from **1 / 4**
+  (v0, empty brain) to **2 / 4** after 10 training tasks (v8), with about **20% fewer tokens per task** (248k → 198k).
 - **Rewrites itself without supervision.** In the unattended experiment the team wrote 8 harness versions on its own,
   mostly new procedure skills created mid-task when a guard tripped, a submit was rejected or the router escalated.
-- **Cost-aware routing.** Switchyard sent **1,017** prompts to the efficient tier and **41** to the capable tier.
-  Nemotron models do most of the work, alongside Qwen3.8-27B and gpt-oss-120b, all on Crusoe; **$3.81** in total.
+- **Cost-aware routing.** Switchyard sent **1,547** prompts to the efficient tier and **49** to the capable tier.
+  Nemotron models do most of the work, alongside Qwen3.8-27B and gpt-oss-120b, all on Crusoe; **$5.16** in total.
 
 ### Unattended continual-learning experiment (`groundhog.experiment`)
 
 Two training batches of 5 tasks; 4 hard long-tail held-out tasks (`webapp_wizard`, `vnet_wizard`, `keyvault_wizard`,
 `entra_tour`) evaluated on a frozen snapshot after 0, 5 and 10 training tasks.
 
-| after N training tasks | harness | skills | brain lessons | held-out solved (n = 4) | $ per held-out run |
-|---|---|---|---|---|---|
-| 0 | v0 | 1 | 0 | 1 / 4 | 0.29 |
-| 5 | v2 | 3 | 17 | 1 / 4 | 0.31 |
-| 10 | v8 | 9 | 132 | 0 / 4 | 0.54 |
+| after N training tasks | harness | skills | brain lessons | held-out solved (n = 4) | $ per held-out run | tokens / task |
+|---|---|---|---|---|---|---|
+| 0 | v0 | 1 | 0 | 1 / 4 | 0.14 | 248k |
+| 5 | v2 | 3 | 7 | 1 / 4 and 2 / 4 (two runs) | 0.19 / 0.16 | 238k / 170k |
+| 10 | v8 | 9 | 10 | **2 / 4** | 0.20 | 198k |
 
-Training batches: **4 / 5** (batch 1, v0) and **3 / 5** (batch 2, v2).
+Latest evaluation round (`runs_azure/experiment.jsonl`). Training batches: **4 / 5** (batch 1, v0) and **3 / 5** (batch 2, v2).
+Earlier evaluation rounds are kept in `runs_azure/evals.jsonl`.
+With n = 4 held-out tasks, read these as trends.
 
 **Next steps from this run:** route every self-written edit through the held-out gate before it is applied (the gate in
 `evolve.py` promotes a version only for +2 solved, or +1 at lower cost), prune skills that are never used to keep prompts
