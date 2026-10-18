@@ -8,7 +8,15 @@ driven only by the user's request and the team's own interaction, with no human 
 Problem statements: **Version N+1** (harness evolution) · **Shared Brain** (curated playbook) · **Done Means Done**
 (verifier-gated submit).
 
+![Groundhog architecture tour: seven steps, each lighting up one part of the system with numbers from the real Azure runs](docs/img/architecture_tour.gif)
+
+*The architecture: an overview, then seven steps (5 s each), with live numbers from the Azure runs. Interactive version: run the demo
+app (`GROUNDHOG_WORLD=azure python -m groundhog.app`) and open the **Architecture** tab.*
+
 ## How it works
+
+![Groundhog architecture: you, the lead with scout / analyst / verifier, the Azure portal, NeMo Switchyard and the models on Crusoe, then reflector, brain, improver and harness, and the locked layer](docs/img/architecture.png)
+
 
 | layer | what | adapts from |
 |---|---|---|
