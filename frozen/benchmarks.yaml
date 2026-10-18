@@ -26,11 +26,6 @@ models:
     scores: {mmlu_pro: 78.3, aime25: 89.1, gpqa: 73.0, livecodebench: 68.3, hle: 10.6, terminal_bench: 8.5,
              swe_bench: 38.8, tau_bench: 49.0, bfcl: 53.8, ifbench: 71.5, arena_hard: 67.7, long_context: 86.3}
     source: https://huggingface.co/nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16
-  deepseek-ai/Deepseek-V4-Flash:
-    family: deepseek
-    price: [0.14, 0.28]
-    scores: {mmlu_pro: 86.2, gpqa: 88.1, hle: 34.8, livecodebench: 91.6, terminal_bench: 56.9, swe_bench: 79.0}
-    source: https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash
   nvidia/NVIDIA-Nemotron-3.5-Super-VL:
     family: nemotron
     vision: true
@@ -43,6 +38,23 @@ models:
     price: [0.30, 1.83]
     scores: {tau_bench: 49.0}
     source: https://huggingface.co/nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16
+  Qwen/Qwen3.8-27B:
+    family: qwen
+    vision: true
+    price: [0.10, 0.40]
+    scores: {osworld: 84.3, androidworld: 81.9}   # card table labels partly lost in rendering; footnote-confirmed rows only
+    source: https://huggingface.co/Qwen/Qwen3.8-27B
+  google/gemma-4-31b-it:
+    family: google
+    vision: true
+    price: [0.14, 0.40]
+    scores: {mmmu: 76.9, tau_bench: 76.9}
+    source: https://huggingface.co/google/gemma-4-31B-it
+  openai/gpt-oss-120b:
+    family: openai
+    price: [0.05, 0.20]
+    scores: {gpqa: 80.1, swe_bench: 62.4, tau_bench: 67.8}
+    source: https://huggingface.co/openai/gpt-oss-120b
 # Vision/GUI benchmarks (Azure world): osworld = OSWorld-Verified, webvoyager = WebVoyager (offline),
 #   ocrbench = OCRBench v2 EN. ScreenSpot/Mind2Web/BFCL are not published for these models.
 # Why each benchmark predicts a job (used as default weights in harness/v0/routing.yaml):

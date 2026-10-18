@@ -1,0 +1,40 @@
+{"ts": 1792278944.0590227, "kind": "azure-guarded:OK", "detail": "click on https://portal.azure.com/#view/Microsoft_Azure_VirtualMachines/CreateVirtualMachine.ReactView/createUiDef~/%7B%22isFullCreate%22%3Atrue%7D/_provisioningContext~/%7B%22telemetryId%22%3A%228a6f"}
+{"ts": 1792278948.280573, "kind": "azure-guarded:OK", "detail": "click on https://portal.azure.com/#view/Microsoft_Azure_VirtualMachines/CreateVirtualMachine.ReactView/createUiDef~/%7B%22isFullCreate%22%3Atrue%7D/_provisioningContext~/%7B%22telemetryId%22%3A%228a6f"}
+{"ts": 1792278957.876742, "kind": "azure-guarded:10.0.0.0", "detail": "submit text into on https://portal.azure.com/#create/Microsoft.VirtualNetwork"}
+{"ts": 1792278963.443763, "kind": "azure-guarded:Delete subnet", "detail": "click on https://portal.azure.com/#create/Microsoft.VirtualNetwork"}
+{"ts": 1792279001.350231, "kind": "azure-guarded:Save", "detail": "click on https://portal.azure.com/#create/Microsoft.VirtualNetwork"}
+{"ts": 1792279006.6710923, "kind": "azure-guarded:OK", "detail": "click on https://portal.azure.com/#view/Microsoft_Azure_VirtualMachines/CreateVirtualMachine.ReactView/createUiDef~/%7B%22isFullCreate%22%3Atrue%7D/_provisioningContext~/%7B%22telemetryId%22%3A%228a6f"}
+{"ts": 1792279019.0015163, "kind": "azure-guarded:OK", "detail": "click on https://portal.azure.com/#view/Microsoft_Azure_VirtualMachines/CreateVirtualMachine.ReactView/createUiDef~/%7B%22isFullCreate%22%3Atrue%7D/_provisioningContext~/%7B%22telemetryId%22%3A%228a6f"}
+{"ts": 1792279022.894725, "kind": "azure-guarded:Save", "detail": "click on https://portal.azure.com/#create/Microsoft.VirtualNetwork"}
+{"ts": 1792279023.6542718, "kind": "azure-guarded:OK", "detail": "click on https://portal.azure.com/#view/Microsoft_Azure_VirtualMachines/CreateVirtualMachine.ReactView/createUiDef~/%7B%22isFullCreate%22%3Atrue%7D/_provisioningContext~/%7B%22telemetryId%22%3A%228a6f"}
+{"ts": 1792279071.907485, "kind": "azure-guarded:OK", "detail": "click on https://portal.azure.com/#create/Microsoft.KeyVault"}
+{"ts": 1792279085.8393528, "kind": "azure-guarded:OK", "detail": "click on https://portal.azure.com/#create/Microsoft.KeyVault"}
+{"ts": 1792279130.3786035, "kind": "azure-guarded:OK", "detail": "click on https://portal.azure.com/#create/Microsoft.WebSite"}
+{"ts": 1792279136.4821322, "kind": "azure-guarded:OK", "detail": "click on https://portal.azure.com/#create/Microsoft.WebSite"}
+{"ts": 1792279138.2938707, "kind": "azure-guarded:https://portal.azure.com/#create/Microso", "detail": "press Enter on on https://portal.azure.com/#create/Microsoft.WebSite"}
+{"ts": 1792279148.9285276, "kind": "azure-guarded:OK", "detail": "click on https://portal.azure.com/#create/Microsoft.WebSite"}
+{"ts": 1792279152.165455, "kind": "azure-guarded:OK", "detail": "click on https://portal.azure.com/#create/Microsoft.WebSite"}
+{"ts": 1792279245.1010153, "kind": "azure-guarded:https://portal.azure.com/#create/Microso", "detail": "press Enter on on https://portal.azure.com/#create/Microsoft.KeyVault"}
+{"ts": 1792279269.732105, "kind": "azure-guarded:Create", "detail": "click on https://portal.azure.com/#create/Microsoft.Network"}
+{"ts": 1792279353.0499167, "kind": "azure-guarded:OK", "detail": "click on https://portal.azure.com/#create/Microsoft.VirtualNetwork"}
+{"ts": 1792279353.8882647, "kind": "azure-guarded:Search resources, services, and docs (G+", "detail": "submit text into on https://portal.azure.com/#create/Microsoft.KeyVault"}
+{"ts": 1792279418.5118704, "kind": "azure-guarded:OK", "detail": "click on https://portal.azure.com/#view/WebsitesExtension/AppServiceWebAppCreateV3Blade"}
+{"ts": 1792279420.1306832, "kind": "azure-guarded:OK", "detail": "click on https://portal.azure.com/#view/WebsitesExtension/AppServiceWebAppCreateV3Blade"}
+{"ts": 1792279428.0133648, "kind": "azure-guarded:Search resources, services, and docs (G+", "detail": "submit text into on https://portal.azure.com/#create/Microsoft.KeyVault"}
+{"ts": 1792279451.43531, "kind": "improver:write_file", "detail": "{\"file_path\": \"/harness_azure/v4/skills/azure-storage-list-procedure/SKILL.md\", \"content\": \"---\\nname: azure-storage-list-procedure\\ndescription: How to open the Storage accounts list blade in the Azu"}
+{"ts": 1792279455.2858772, "kind": "improver:edit_file", "detail": "{\"file_path\": \"/harness_azure/v4/subagents.yaml\", \"old_string\": \"# Specialist sub-agents (created by the improver). Each: description, role (scout|analyst|verifier: decides its tools),\\n# job (one of "}
+{"ts": 1792279874.5515366, "kind": "azure-guarded:Search resources, services, and docs (G+", "detail": "submit text into on https://portal.azure.com/#view/Microsoft_Azure_Marketplace/PlusNew.ReactView/package/hub/additionalConfig~/%7B%7D/selectedMenuItemId/undefined/createLanding/undefined"}
+{"ts": 1792279890.768352, "kind": "azure-guarded:Create", "detail": "click on https://portal.azure.com/#create/Microsoft.KeyVault"}
+{"ts": 1792279898.773884, "kind": "azure-guarded:Create", "detail": "click on https://portal.azure.com/#create/Microsoft.KeyVault"}
+{"ts": 1792279912.06787, "kind": "azure-guarded:https://portal.azure.com/#view/WebsitesE", "detail": "press Enter on on https://portal.azure.com/#view/WebsitesExtension/AppServiceWebAppCreateV3Blade"}
+{"ts": 1792279939.9918084, "kind": "azure-guarded:https://portal.azure.com/#create/Microso", "detail": "press Enter on on https://portal.azure.com/#create/Microsoft.VirtualNetwork"}
+{"ts": 1792279948.2363245, "kind": "azure-guarded:my-key-vault-001", "detail": "submit text into on https://portal.azure.com/#create/Microsoft.KeyVault"}
+{"ts": 1792279988.345788, "kind": "azure-guarded:Delete subnet", "detail": "click on https://portal.azure.com/#create/Microsoft.VirtualNetwork"}
+{"ts": 1792280003.7042754, "kind": "azure-guarded:10.0.0.0", "detail": "submit text into on https://portal.azure.com/#create/Microsoft.VirtualNetwork"}
+{"ts": 1792280012.050874, "kind": "azure-guarded:Delete subnet", "detail": "click on https://portal.azure.com/#create/Microsoft.VirtualNetwork"}
+{"ts": 1792280016.7022698, "kind": "azure-guarded:Delete subnet", "detail": "click on https://portal.azure.com/#create/Microsoft.VirtualNetwork"}
+{"ts": 1792280018.755095, "kind": "azure-guarded:Delete subnet", "detail": "click on https://portal.azure.com/#create/Microsoft.VirtualNetwork"}
+{"ts": 1792280044.9262245, "kind": "azure-guarded:https://portal.azure.com/#view/WebsitesE", "detail": "press Enter on on https://portal.azure.com/#view/WebsitesExtension/AppServiceWebAppCreateV3Blade"}
+{"ts": 1792280422.6391432, "kind": "azure-guarded:Delete subnet", "detail": "click on https://portal.azure.com/#create/Microsoft.VirtualNetwork"}
+{"ts": 1792282623.4912925, "kind": "azure-password-field", "detail": ""}
+{"ts": 1792282859.277496, "kind": "azure-password-field", "detail": ""}

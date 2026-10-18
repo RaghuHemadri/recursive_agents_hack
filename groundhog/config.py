@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-WORLD = os.environ.get("GROUNDHOG_WORLD", "gpuco")
+WORLD = os.environ.get("GROUNDHOG_WORLD", "azure")
 RUNS = ROOT / ("runs" if WORLD == "gpuco" else f"runs_{WORLD}")
 HARNESS = ROOT / ("harness" if WORLD == "gpuco" else f"harness_{WORLD}")
 

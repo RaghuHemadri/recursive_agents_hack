@@ -84,7 +84,7 @@ def _log(name: str, rec: dict):
 
 
 def evaluate(hdir: Path, tasks: list[dict], tag: str, brain: Brain | None = None, record: bool = False,
-             workers: int = 6, llm: LLM | None = None) -> dict:
+             workers: int = 6, llm: LLM | None = None, learner=None) -> dict:
     """Runs a harness on tasks. `record` feeds pass/fail into the router posterior (training runs only)."""
     llm, h = llm or LLM(), load_harness(hdir)
     out_dir = RUNS / "traces" / tag
@@ -97,7 +97,24 @@ def evaluate(hdir: Path, tasks: list[dict], tag: str, brain: Brain | None = None
         if spent() > BUDGET_USD:
             raise BudgetStop(f"budget cap ${BUDGET_USD} reached")
         used = brain.ids_in_render() if brain else []
-        res = Team(h, brain.render() if brain else "", llm, trace_dir=out_dir).run(t)
+        for attempt in range(3):  # infra failures (session lost, browser hung) are retried, never scored as agent failures
+            try:
+                if learner is not None and brain is not None:  # training: live brain + skills learned mid-task
+                    from .live import live_context
+                    md = live_context(brain, hdir)
+                else:  # held-out: the brain as it was when the task started (frozen)
+                    md = brain.render() if brain else ""
+                res = Team(h, md, llm, trace_dir=out_dir, learner=learner).run(t)
+                fin = (res.get("final") or {}).get("url", "")
+                if not ("/auth/login" in fin or "login.microsoftonline" in fin):
+                    break
+                err = "ended on the sign-in page"
+            except Exception as ex:
+                err = repr(ex)
+            res = dict(task_id=t["id"], template=t["template"], answer=None, tokens=0, cost=0.0, cached=0, calls=0, explore=0,
+                       models={}, jobs={}, secs=0, trace=[dict(step=0, role="system", kind="guard", text=f"infra error: {err}"[:300])],
+                       final={}, used={}, infra_error=True)
+            time.sleep(10)
         res["brain_used"] = used
         res["passed"] = world.grade(t, res)
         if t["template"] != "sec":
@@ -197,7 +214,13 @@ frontmatter), changes fewer than 40 lines, and states a falsifiable hypothesis. 
 own harness: system_prompt_suffix, tool_description_overrides for built-in tools (task, ls, read_file, write_file,
 edit_file, delete, glob, grep), excluded_tools, excluded_middleware; the stock text is in /harness/DEEPAGENTS_DEFAULTS.md. General lessons only: never include answer values or task ids.
 routing.yaml maps published benchmarks to jobs; change weights, cost_weight, pins or escalation if the measured stats
-show a model under-performing its benchmark prior."""
+show a model under-performing its benchmark prior.
+GROW THE HARNESS: prefer edits that ADD capability over rewording prompts:
+- a NEW skill skills/<new-name>/SKILL.md (frontmatter: name, description) capturing a procedure that worked or was missing
+  (e.g. how to fill a specific creation wizard, how to read values from a blade);
+- a NEW specialist sub-agent: rewrite subagents.yaml keeping scout/analyst/verifier and adding under `specialists:` an
+  entry <kebab-name>: {description: "<when the lead should use it>", role: analyst|scout|verifier, job: <a routing.yaml
+  task_jobs key>, prompt: "<focused instructions>"}; the lead sees it as a sub-agent it can delegate to."""
 _H, _R = f"/{HARNESS.name}", f"/{RUNS.name}"  # this world's harness/ and runs/ folders
 READABLE = [_H, f"{_H}/**", _R, f"{_R}/traces", f"{_R}/traces/*-train", f"{_R}/traces/*-train/**",
             f"{_R}/archive.jsonl", f"{_R}/router_stats.json", f"{_R}/VALIDATIONS.md", f"{_R}/traces/live", f"{_R}/traces/live/**"]
@@ -280,6 +303,29 @@ def propose(llm: LLM, hdir: Path, train: dict, redteam: bool = False, archive: s
         else:
             ok.append(e)
     return ok
+
+
+_version_lock = threading.Lock()
+
+
+def new_version(edit: dict, reason: str, brain: Brain | None = None) -> dict:
+    """Applies one improver edit immediately as harness v{N+1} (folder + git commit + archive record)."""
+    with _version_lock:
+        n = current_version()
+        base = HARNESS / f"v{n}"
+        dest = materialise(base, [edit], HARNESS / f"v{n + 1}")
+        old = (base / edit["file"]).read_text().splitlines() if (base / edit["file"]).exists() else []
+        diff = "\n".join(difflib.unified_diff(old, (dest / edit["file"]).read_text().splitlines(), f"v{n}/{edit['file']}",
+                                              f"v{n + 1}/{edit['file']}", lineterm=""))
+        msg = re.sub(r"[^A-Za-z0-9 ,.:;()+-]", "", edit["hypothesis"])[:150]
+        subprocess.run(["git", "add", HARNESS.name], cwd=ROOT, capture_output=True)
+        subprocess.run(["git", "commit", "-qm", f"{HARNESS.name}/v{n + 1}: {msg}"], cwd=ROOT, capture_output=True)
+    rec = dict(ts=time.time(), gen=f"live-{int(time.time())}", version=n + 1, status="accepted", files=[edit["file"]],
+               hypotheses=[edit["hypothesis"]], reason=reason, diff=diff)
+    _log("archive.jsonl", rec)
+    if brain is not None:
+        brain.record_validation("gate", edit["file"], edit["hypothesis"], True, f"applied as v{n + 1}: {reason}"[:300], "live", "live")
+    return rec
 
 
 def materialise(base: Path, edits: list[dict], dest: Path) -> Path:
@@ -380,11 +426,11 @@ def generation(llm: LLM, brain: Brain | None, limit: int | None = None) -> dict:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["evolve", "eval", "table", "attack-memory", "attack-improver", "intervene"])
+    ap.add_argument("cmd", choices=["evolve", "eval", "intervene"])
     ap.add_argument("--gens", type=int, default=3)
     ap.add_argument("--split", default="val")
     ap.add_argument("--harness", default=None)
-    ap.add_argument("--brain", default="runs/brain.db")
+    ap.add_argument("--brain", default=str(RUNS / "brain.db"))
     ap.add_argument("--no-brain", action="store_true")
     ap.add_argument("--budget-usd", type=float, default=15.0)
     ap.add_argument("--limit", type=int, default=None, help="tasks per split (small runs)")
@@ -395,7 +441,7 @@ def main():
     if a.cmd == "intervene":
         return intervention(a.note)
     llm = LLM()
-    brain = None if a.no_brain else Brain(ROOT / a.brain)
+    brain = None if a.no_brain else Brain(Path(a.brain))
     if a.cmd == "evolve":
         if (RUNS / "started_at").exists():  # any restart of the unattended loop is a human touch
             intervention("restarted the evolve loop")
@@ -407,22 +453,10 @@ def main():
                 print(json.dumps(generation(llm, brain, a.limit), default=str)[:600], flush=True)
         except BudgetStop as e:
             print(f"{e} (${spent():.2f} spent); stopped cleanly. Rerun with a higher --budget-usd to resume.")
-    elif a.cmd in ("attack-memory", "attack-improver"):
-        from . import attacks
-        rep = attacks.memory_poisoning(llm, brain) if a.cmd == "attack-memory" else attacks.improver_redteam(llm)
-        print(json.dumps(rep, indent=1, default=str))
     elif a.cmd == "eval":
         h = HARNESS / (a.harness or f"v{current_version()}")
         print(json.dumps(evaluate(h, spread(world.load_tasks(a.split), a.limit), f"eval-{h.name}-{a.split}-{'brain' if brain else 'nobrain'}",
                                   brain, llm=llm)["summary"]))
-    else:  # 2x2: v0 vs best, brain off/on, on held-out test (+ DB-B transfer with empty brain)
-        best = HARNESS / f"v{current_version()}"
-        for h in (HARNESS / "v0", best):
-            for b in (None, brain):
-                print(json.dumps(evaluate(h, spread(world.load_tasks("test"), a.limit), f"test-{h.name}-{'brain' if b else 'nobrain'}",
-                                          b, llm=llm)["summary"]))
-            print(json.dumps(evaluate(h, spread(world.load_tasks("test_B"), a.limit), f"testB-{h.name}-emptybrain",
-                                      Brain(RUNS / f"empty_{h.name}.db"), llm=llm)["summary"]))
 
 
 if __name__ == "__main__":

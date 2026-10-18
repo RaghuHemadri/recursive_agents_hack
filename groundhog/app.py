@@ -11,25 +11,26 @@ click (approve/deny icons). After each task you give thumbs up/down. That verdic
     harness v{N+1} (git commit), thumbs down rolls it back. The unattended evolve loop (same improver, validation gate)
     still runs with `python -m groundhog.evolve evolve`.
 """
-import difflib
 import json
 import os
 import queue
 import re
 import sqlite3
-import subprocess
 import threading
 import time
 
 os.environ.setdefault("GROUNDHOG_WORLD", "azure")
 
+import yaml  # noqa: E402
 from flask import Flask, jsonify, request, send_file  # noqa: E402
 
 from .agent import Team, load_harness  # noqa: E402
 from .brain import Brain  # noqa: E402
-from .config import HARNESS, ROOT, RUNS, world  # noqa: E402
-from .evolve import _log, current_version, learn, materialise, propose, remember_validations  # noqa: E402
+from .config import HARNESS, RUNS, world  # noqa: E402
+from .evolve import current_version, learn, propose, remember_validations  # noqa: E402
+from .evolve import new_version as _new_version  # noqa: E402
 from .human import Human  # noqa: E402
+from .live import LiveLearner, live_context  # noqa: E402
 from .llm import LLM  # noqa: E402
 from .router import BENCH, Router  # noqa: E402
 
@@ -59,21 +60,9 @@ def harness_dir() -> tuple:
 
 
 def new_version(edit: dict, reason: str) -> None:
-    """Applies one improver edit immediately as harness v{N+1} (git commit); every later task uses it."""
-    with harness_lock:
-        n = current_version()
-        base = HARNESS / f"v{n}"
-        dest = materialise(base, [edit], HARNESS / f"v{n + 1}")
-        old = (base / edit["file"]).read_text().splitlines() if (base / edit["file"]).exists() else []
-        diff = "\n".join(difflib.unified_diff(old, (dest / edit["file"]).read_text().splitlines(), f"v{n}/{edit['file']}",
-                                              f"v{n + 1}/{edit['file']}", lineterm=""))
-        msg = re.sub(r"[^A-Za-z0-9 ,.:;()+-]", "", edit["hypothesis"])[:150]
-        subprocess.run(["git", "add", HARNESS.name], cwd=ROOT, capture_output=True)
-        subprocess.run(["git", "commit", "-qm", f"{HARNESS.name}/v{n + 1}: {msg}"], cwd=ROOT, capture_output=True)
-    _log("archive.jsonl", dict(ts=time.time(), gen=f"live-{int(time.time())}", version=n + 1, status="accepted",
-                               files=[edit["file"]], hypotheses=[edit["hypothesis"]], reason=reason, diff=diff))
-    brain.record_validation("gate", edit["file"], edit["hypothesis"], True, f"applied as v{n + 1}: {reason}"[:300], "live", "live")
-    note("harness", f"Harness v{n + 1}: updated {edit['file']}", edit["hypothesis"], diff=diff, version=n + 1, reason=reason)
+    rec = _new_version(edit, reason, brain)
+    note("harness", f"Harness v{rec['version']}: updated {edit['file']}", edit["hypothesis"], diff=rec["diff"],
+         version=rec["version"], reason=reason)
 
 
 def improve(note_text: str, why: str, task_id: str) -> None:
@@ -144,6 +133,9 @@ def learner() -> None:
 
 
 threading.Thread(target=learner, daemon=True, name="learner").start()
+# mid-task adaptation from the request and the team's own interaction (human messages go through learn_q above)
+LIVE = LiveLearner(brain, llm, on_event=lambda r: note(r["kind"], r["title"], r.get("text", ""), diff=r.get("diff", ""),
+                                                        version=r.get("version")), skip={"human"})
 
 
 def run_task(text: str) -> None:
@@ -155,18 +147,16 @@ def run_task(text: str) -> None:
         task = dict(id=task_id, template="live", question=text)
         note("task", f"Task started on harness {label}", text, version=label)
         used = brain.ids_in_render()
-        team = Team(h, brain.render, llm, trace_dir=RUNS / "traces" / "live", human=human, step_cap=24, task_timeout_s=1500)
+        team = Team(h, live_context(brain, __import__("pathlib").Path(hdir)), llm, trace_dir=RUNS / "traces" / "live",
+                    human=human, step_cap=30, task_timeout_s=1500, learner=LIVE)
         state["team"] = team
         res = team.run(task)
         res.update(brain_used=used, question=text)
         n_actions = sum(1 for e in res["trace"] if e.get("tool") in ACTIONS)
-        verdict = human.ask(f"Finished: {res['answer']!r} after {n_actions} screen actions "
-                            f"(now on '{(res['final'] or {}).get('title', '')}'). Did it do the task correctly?", kind="verdict") or ""
-        res["passed"] = verdict.strip().lower().startswith(("y", "\U0001f44d"))
-        res["trace"].append(dict(step=len(res["trace"]), role="human", kind="verdict", text=verdict))
+        res["passed"] = res["answer"] is not None  # the team's own verifier-confirmed judgement (no human feedback needed)
         (RUNS / "traces" / "live" / f"{task_id}.json").write_text(json.dumps(res, default=str, indent=1))
         before = {j: dict(v) for j, v in Router.stats().items()}
-        for role, models in res.get("used", {}).items():  # router learns from this interaction
+        for role, models in res.get("used", {}).items():
             for m in models:
                 Router.record(res["jobs"][role], m, res["passed"])
         r = Router(h["routing"])
@@ -178,18 +168,24 @@ def run_task(text: str) -> None:
                 s1, n1 = Router.stats()[job][m]
                 k, p = r.cfg.get("prior_strength", 4), r.prior(m, job) if m in r.bench else 0
                 moves.append(f"{job}: {short(m)} {(k * p + s0) / (k + n0):.2f} -> {(k * p + s1) / (k + n1):.2f}")
-        note("router", f"Router learned from your {'thumbs up' if res['passed'] else 'thumbs down'}", "\n".join(sorted(set(moves))))
+        note("router", f"Router learned: task {'completed' if res['passed'] else 'not completed'} (self-assessed)", "\n".join(sorted(set(moves))))
         learn(brain, llm, Router(h["routing"]), [res])
         remember_validations(brain, [res], "live")
         for e in res.get("brain_events", []):
             note("lesson", "Lesson from this task" if e.startswith("add") else e.split(":")[0], e.split(":", 1)[-1].strip())
-        if not res["passed"]:
-            improve(f"LIVE TASK {text!r} FAILED (human: {verdict}). Make ONE edit that fixes what went wrong.",
-                    f"you marked the task as failed ({verdict})"[:200], task_id)
-        elif n_actions >= 8 and not state.get("live_learned"):
-            improve(f"LIVE TASK {text!r} SUCCEEDED but needed {n_actions} screen actions. Write or update ONE skill "
+        if res["passed"] and n_actions >= 8 and not state.get("live_learned"):
+            improve(f"LIVE TASK {text!r} was completed but needed {n_actions} screen actions. Write or update ONE skill "
                     "(skills/<name>/SKILL.md with Deep Agents frontmatter) capturing the procedure that worked, so next time "
-                    "it takes fewer steps.", f"long task succeeded in {n_actions} actions: saving the procedure as a skill", task_id)
+                    "it takes fewer steps.", f"long task completed in {n_actions} actions: saving the procedure as a skill", task_id)
+        elif not res["passed"]:
+            improve(f"LIVE TASK {text!r} was NOT completed (the team's verifier did not confirm it). Make ONE edit that fixes "
+                    "what went wrong.", "task not completed: fixing what went wrong", task_id)
+        state["busy"] = False
+        verdict = human.ask(f"Finished: {res['answer']!r} after {n_actions} screen actions (now on "
+                            f"'{(res['final'] or {}).get('title', '')}'). Optional: did it do the task correctly?", kind="verdict") or ""
+        if verdict:
+            ok = verdict.strip().lower().startswith(("y", "\U0001f44d"))
+            brain.record_validation("human", "verdict", text[:120], ok, verdict[:200], task_id, "live")
     except Exception as e:  # keep the session alive; the error is shown in the chat
         note("error", "Error", f"{type(e).__name__}: {e}"[:500])
     finally:
@@ -241,8 +237,12 @@ def events():
 
 @app.get("/screen.jpg")
 def screen():
-    p = RUNS / "screens" / "latest.jpg"
-    return send_file(p, mimetype="image/jpeg", max_age=0) if p.exists() else ("", 204)
+    """The live browser while a live task runs, otherwise the most recent screen of any (experiment) browser."""
+    d = RUNS / "screens"
+    live = d / "latest.jpg"
+    shots = sorted(d.glob("*.jpg"), key=lambda f: f.stat().st_mtime) if d.exists() else []
+    p = live if state["busy"] and live.exists() else (shots[-1] if shots else None)
+    return send_file(p, mimetype="image/jpeg", max_age=0) if p else ("", 204)
 
 
 def _jl(name):
@@ -271,6 +271,92 @@ def api_recent():
     items += [dict(ts=b["created"], kind="lesson", title=f"Lesson ({b['type']}, {b['scope']})", text=b["text"])
               for b in brain.bullets() if b.get("created")]
     return jsonify(items=sorted(items, key=lambda x: -x["ts"])[:14])
+
+
+@app.get("/shots/<name>")
+def shot(name):
+    p = RUNS / "shots" / os.path.basename(name)
+    return send_file(p, mimetype="image/jpeg") if p.exists() else ("", 404)
+
+
+def _harness_inventory(d) -> dict:
+    import pathlib
+    d = pathlib.Path(d)
+    skills = sorted(p.parent.name for p in d.glob("skills/*/SKILL.md"))
+    try:
+        sp = yaml.safe_load((d / "subagents.yaml").read_text()) or {}
+    except Exception:
+        sp = {}
+    specs = sorted((sp.get("specialists") or {}).keys())
+    return dict(skills=skills, specialists=specs, subagents=["scout", "analyst-<job>", "verifier-<job>", *specs])
+
+
+@app.get("/api/results")
+def api_results():
+    ex = _jl("experiment.jsonl")
+    keys = ["steps", "model_calls", "tokens", "cost", "secs", "delegations", "scout_calls", "specialist_calls", "guards",
+            "escalations", "fallbacks", "tool_errors", "submit_rejects", "sy_capable", "sy_efficient"]
+    from .experiment import row as _row
+    points = {}
+    for e in ex:  # original evaluations (fallback)
+        if e.get("event") == "heldout" and not e.get("rerun"):
+            points.setdefault((e["seen"], False), dict(seen=e["seen"], curated=False, version=e["version"], per_task=e["per_task"],
+                                                        inventory=e.get("inventory", {})))
+    vers = {e["seen"]: e for e in ex if e.get("event") == "heldout" and not e.get("rerun")}
+    with sqlite3.connect(RUNS / "state.db") as db:  # corrected-policy re-runs, read live as tasks finish
+        rr, ho = {}, {t["id"] for t in W.load_tasks("heldout")}
+        for tag, tid, res in db.execute("SELECT tag, task_id, res FROM results WHERE tag LIKE 'reheldout-after%' AND tag NOT LIKE '%-curated'"):
+            if tid in ho:  # older held-out sets stay in the db; show only the current one
+                rr.setdefault(tag, []).append(_row(json.loads(res)))
+    from .experiment import inventory as _inv
+    for tag, pt in rr.items():
+        cur = tag.endswith("-curated")
+        seen = int(tag.replace("reheldout-after", "").replace("-curated", ""))
+        v = 9 if cur else (vers.get(seen) or {}).get("version", 0) if seen != 10 else 8
+        points[(seen, cur)] = dict(seen=seen, curated=cur, version=v, per_task=pt, inventory=_inv(v), rerun=True)
+    curve = []
+    for (seen, cur), e in sorted(points.items()):
+        pt = [x for x in e["per_task"] if not x.get("infra_error")]
+        n = max(1, len(pt))
+        avg = {k: round(sum(x.get(k, 0) or 0 for x in pt) / n, 4 if k == "cost" else 1) for k in keys}
+        solved = [x for x in pt if x["passed"]]
+        curve.append(dict(seen=e["seen"], curated=e.get("curated", False), rerun=e.get("rerun", False), version=e["version"], n=len(pt), solved=len(solved),
+                          self_ok=sum(1 for x in pt if x.get("self_ok")), avg=avg, inventory=e.get("inventory", {}),
+                          cost_per_solved=round(sum(x.get("cost", 0) for x in pt) / len(solved), 4) if solved else None,
+                          per_task=pt))
+    train = [dict(batch=e["batch"], version=e["version"], solved=e["summary"]["solved"], n=e["summary"]["n"], per_task=e["per_task"])
+             for e in ex if e.get("event") == "train"]
+    versions = sorted(int(p.name[1:]) for p in HARNESS.glob("v*") if p.name[1:].isdigit())
+    growth = [dict(version=v, **_harness_inventory(HARNESS / f"v{v}")) for v in versions]
+    edits = [a for a in _jl("archive.jsonl") if a.get("status") == "accepted"]
+    mid = _jl("midtask.jsonl")
+    bs = brain.bullets(include_hidden=True)
+    log = _jl("routing.jsonl")
+    calls = [x for x in log if "role" in x and "event" not in x and "error" not in x]
+    by_model = {}
+    for x in calls:
+        m = by_model.setdefault(x["model"], dict(model=x["model"], calls=0, cost=0.0, nemotron="nemotron" in x["model"].lower()))
+        m["calls"] += 1
+        m["cost"] = round(m["cost"] + x.get("cost", 0), 4)
+    sy = [x for x in log if x.get("event") == "switchyard"]
+    kinds = {}
+    for d in _jl("denials.jsonl"):
+        k = d["kind"].split(":")[0]
+        kinds[k] = kinds.get(k, 0) + 1
+    return jsonify(curve=curve, train=train, growth=growth, edits=edits[-14:], keys=keys,
+                   midtask=[m for m in mid if m.get("kind") in ("lesson", "harness", "quarantine")][-30:],
+                   midtask_counts=dict(lessons=sum(1 for m in mid if m.get("kind") == "lesson"),
+                                       versions=sum(1 for m in mid if m.get("kind") == "harness")),
+                   brain=dict(total=len(bs), active=sum(1 for b in bs if not b["retired"] and not b["quarantined"]),
+                              trusted=sum(1 for b in bs if b["trusted"]), quarantined=sum(1 for b in bs if b["quarantined"]),
+                              retired=sum(1 for b in bs if b["retired"]), created=sorted(b["created"] for b in bs if b.get("created")),
+                              top=sorted([b for b in bs if not b["quarantined"]], key=lambda b: (-b["trusted"], -b["helpful"]))[:8]),
+                   models=sorted(by_model.values(), key=lambda m: -m["calls"]),
+                   switchyard=dict(capable=sum(1 for x in sy if x["tier"] == "capable"), efficient=sum(1 for x in sy if x["tier"] == "efficient")),
+                   escalations=sum(1 for x in log if x.get("event") == "escalate"), fallbacks=sum(1 for x in log if x.get("event") == "fallback"),
+                   denials=kinds, spent=round(sum(x.get("cost", 0) for x in log), 3), cached=sum(x.get("cached", 0) for x in calls),
+                   started=ex[0]["ts"] if ex else None, done=any(e.get("event") == "done" for e in ex), now=time.time(),
+                   tasks={t["id"]: dict(q=t["question"], long=t["long"]) for t in W.ALL.values()})
 
 
 @app.get("/api/summary")
@@ -406,7 +492,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:6px 8px;b
 .lessoncard{border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-bottom:8px;background:#fff}
 </style></head><body>
 <header><div class="logo">Ground<span>hog</span></div><div class="sub">Self-improving computer-use agent for Azure · NVIDIA Nemotron · NeMo Switchyard</div>
-<nav><button class="on" data-v="arch">Architecture</button><button data-v="live">Live demo</button><button data-v="harness">Harness versions</button><button data-v="routing">Model routing</button><button data-v="brain">Knowledge</button></nav></header>
+<nav><button class="on" data-v="arch">Architecture</button><button data-v="live">Live demo</button><button data-v="harness">Harness versions</button><button data-v="routing">Model routing</button><button data-v="brain">Knowledge</button><button data-v="results">Results</button></nav></header>
 <div class="kpis">
 <div class="kpi hi"><div class="l">Harness version</div><div class="v" id="k-ver">v0</div><div class="d" id="k-ver-d"></div></div>
 <div class="kpi hi"><div class="l">Lessons learned</div><div class="v" id="k-les">0</div><div class="d" id="k-les-d"></div></div>
@@ -466,6 +552,20 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:6px 8px;b
 <div class="card pad"><h3>Which Nemotron models fill the tiers</h3><div id="r-tiers"></div><h3 style="margin-top:16px">Calls and cost per model</h3><div id="r-mix"></div></div></div>
 <div class="card pad" style="margin-top:14px"><h3>Adaptive router: published benchmark prior vs measured success</h3><div class="muted">Bars: grey = benchmark prior, green = belief after real outcomes. It moves with every 👍/👎.</div><div class="grid3" id="r-tables"></div></div></div>
 
+<div class="view" id="v-results">
+<div class="card pad"><h3>Does the team get better on hard Azure tasks it has never seen?</h3><div class="muted" id="x-meta"></div>
+<div class="grid2" style="margin-top:10px"><div><b>Held-out (4 hard long-tail tasks) after 0, 5, 10 training tasks</b>
+<svg id="x-curve" width="100%" height="230" viewBox="0 0 560 220"></svg>
+<div class="muted">Held-out tasks solved (graded on the final browser state) · n per bar shown · corrected browser policy</div></div>
+<div><b>Before vs after, averaged over the held-out tasks</b><div id="x-head"></div></div></div></div>
+<div class="card pad" style="margin-top:14px"><h3>Every held-out task, every evaluation: how it was done, not only whether</h3><div id="x-matrix"></div></div>
+<div class="grid2" style="margin-top:14px"><div class="card pad"><h3>The harness grew: skills and specialist sub-agents</h3><div id="x-growth"></div></div>
+<div class="card pad"><h3>Adapted in the middle of tasks (no human feedback)</h3><div id="x-mid"></div></div></div>
+<div class="grid2" style="margin-top:14px"><div class="card pad"><h3>Knowledge accumulated (brain)</h3><svg id="x-brain" width="100%" height="110" viewBox="0 0 560 110"></svg><div id="x-brainstats"></div><div id="x-lessons"></div></div>
+<div class="card pad"><h3>Model routing (NeMo Switchyard + adaptive router)</h3><div id="x-models"></div><h3 style="margin-top:12px">Safety and cost</h3><div id="x-safety"></div></div></div>
+<div class="grid2" style="margin-top:14px"><div class="card pad"><h3>What the improver created (verbatim)</h3><div id="x-edits"></div></div>
+<div class="card pad"><h3>Training batches</h3><div id="x-train"></div></div></div>
+</div>
 <div class="view" id="v-brain"><div class="grid2"><div class="card pad"><h3>Lessons in the shared brain</h3><svg id="growth" width="100%" height="90" viewBox="0 0 600 90" preserveAspectRatio="none"></svg><div id="b-list"></div></div>
 <div class="card pad"><h3>Validations: what worked and what failed</h3><div id="b-val"></div></div></div></div>
 
@@ -547,14 +647,17 @@ async function poll(){try{const d=await (await fetch('/events?after='+after)).js
   if(d.waiting_kind==='verdict')box.innerHTML=`<div class="ask" style="margin:8px">${esc(d.waiting)}<div class="btns"><button class="big" onclick="send('yes')">👍</button><button class="big" onclick="$('#why').style.display='flex'">👎</button></div><div id="why" style="display:none;gap:6px;margin-top:8px"><input id="whyt" style="flex:1;padding:6px" placeholder="What went wrong? (optional)"><button class="big" style="font-size:14px" onclick="send('no'+($('#whyt').value?': '+$('#whyt').value:''))">Send</button></div></div>`;
   else if(d.waiting_kind==='approval')box.innerHTML=`<div class="ask" style="margin:8px">🛡 ${esc(d.waiting)}<div class="btns"><button class="big" onclick="send('yes')">✅ Approve</button><button class="big" onclick="send('no')">❌ Deny</button></div></div>`;
   else if(d.waiting)box.innerHTML=`<div class="ask" style="margin:8px">❓ ${esc(d.waiting)}<div class="muted" style="font-weight:400">Type your answer below.</div></div>`}
- $('#shot').src='/screen.jpg?t='+Date.now()}catch(e){} setTimeout(poll,1200)}
+ }catch(e){} reshot();setTimeout(poll,1200)}
+// load off-screen and swap when done: resetting src every poll aborted slow loads, so the image never updated
+let shotLoading=false;function reshot(){if(shotLoading)return;shotLoading=true;const i=new Image();
+ i.onload=()=>{$('#shot').src=i.src;shotLoading=false};i.onerror=()=>{shotLoading=false};i.src='/screen.jpg?t='+Date.now()}
 function bar(v,c){return `<div class="bar"><i style="width:${Math.round(v*100)}%;background:${c}"></i></div>`}
 async function refresh(){try{const S=await (await fetch('/api/summary')).json();
  $('#k-ver').textContent='v'+S.version;$('#k-ver-d').textContent=S.versions_learned+' version(s) learned';$('#k-les').textContent=S.lessons;
  $('#k-les-d').textContent=S.trusted+' trusted · '+S.quarantined+' quarantined';$('#k-eff').textContent=S.efficient;$('#k-cap').textContent=S.capable;
- $('#k-mod').textContent=S.models.length;$('#k-mod-d').title=S.models.map(mn).join(', ');$('#k-ok').textContent=S.validations_ok;$('#k-bad').textContent=S.validations_bad;$('#k-cost').textContent='$'+S.spent;
+ const nv=S.models.filter(m=>/nemotron/i.test(m));$('#k-mod').textContent=nv.length;$('#k-mod-d').textContent=(S.models.length-nv.length)?`NVIDIA on Crusoe + ${S.models.length-nv.length} other`:'all NVIDIA Nemotron on Crusoe';$('#k-mod-d').title=S.models.map(mn).join(', ');$('#k-ok').textContent=S.validations_ok;$('#k-bad').textContent=S.validations_bad;$('#k-cost').textContent='$'+S.spent;
  S0=S;if(ti>=0)$('#t-text').innerHTML=TOUR[ti].x();
- if($('#a-brain-c')){$('#a-brain-c').textContent=S.lessons+' lessons · '+S.trusted+' trusted · '+S.quarantined+' quarantined';$('#a-harness-c').textContent='now at v'+S.version+' · '+S.versions_learned+' learned';$('#a-sy-c').textContent=S.efficient+' efficient · '+S.capable+' capable so far';$('#a-models-c').textContent=S.models.length+' Nemotron models · $'+S.spent}
+ if($('#a-brain-c')){$('#a-brain-c').textContent=S.lessons+' lessons · '+S.trusted+' trusted · '+S.quarantined+' quarantined';$('#a-harness-c').textContent='now at v'+S.version+' · '+S.versions_learned+' learned';$('#a-sy-c').textContent=S.efficient+' efficient · '+S.capable+' capable so far';$('#a-models-c').textContent=nv.length+' Nemotron models · $'+S.spent}
  const v=document.querySelector('nav button.on').dataset.v;
  if(v==='arch'){try{const R=await (await fetch('/api/routing')).json(),T=R.tiers;
   const pair=k=>T[k]?`<span class="badge b-p">capable</span>${mn(T[k][0])} <span class="badge b-e">efficient</span>${mn(T[k][1])}`:'';
@@ -570,6 +673,33 @@ async function refresh(){try{const S=await (await fetch('/api/summary')).json();
  if(v==='harness'){const H=await (await fetch('/api/harness')).json();$('#h-act').textContent=H.active;
   $('#h-tl').innerHTML=H.timeline.slice().reverse().map(t=>`<div class="ver"><div class="n">v${t.version}</div><div style="flex:1">${t.change?`<b>${esc(t.change.files.join(', '))}</b> <span class="badge b-g">${esc(t.change.reason||'')}</span><div>${esc(t.change.hypotheses.join('; '))}</div><details><summary>show diff</summary>${diffHtml(t.change.diff||'')}</details>`:'<span class="muted">starting harness</span>'}</div></div>`).join('');
   $('#h-files').innerHTML=Object.entries(H.files).map(([k,c])=>`<details><summary><b>${esc(k)}</b></summary><pre class="diff">${esc(c)}</pre></details>`).join('')}
+
+ if(v==='results'){const X=await (await fetch('/api/results')).json(),C=X.curve;
+  $('#x-meta').innerHTML=`14 real Azure portal tasks · 10 training (4 long-tail) · 4 hard held-out, evaluated after 0, 5 and 10 training tasks · unattended, no human feedback · ${X.done?'finished':'running'} · ${X.started?Math.round((X.now-X.started)/60):0} min · $${X.spent}`;
+  const lab=p=>p.curated?'after 10 + curated':'after '+p.seen;let g='';const bw=88,gap=40,x0=50,base=180,hmax=140;
+  g+=`<line x1="40" y1="${base}" x2="${x0+C.length*(bw+gap)}" y2="${base}" stroke="#ccc"/>`;
+  C.forEach((p,i)=>{const x=x0+i*(bw+gap),f=p.n?p.solved/p.n:0,h=Math.max(2,f*hmax);
+   g+=`<rect x="${x}" y="${base-h}" width="${bw}" height="${h}" rx="6" fill="${p.curated?'#3d7a00':'#76b900'}"/>`+
+      `<text x="${x+bw/2}" y="${base-h-8}" text-anchor="middle" font-size="15" font-weight="700">${p.solved}/${p.n}</text>`+
+      `<text x="${x+bw/2}" y="${base+16}" text-anchor="middle" font-size="12" fill="#333">${lab(p)}</text>`+
+      `<text x="${x+bw/2}" y="${base+31}" text-anchor="middle" font-size="11" fill="#777">v${p.version} · ${p.avg.steps} actions</text>`});
+  $('#x-curve').innerHTML=g;
+  const a=C[0],b=C[C.length-1],L={steps:'screen actions',model_calls:'model calls',tokens:'tokens',cost:'$ cost',secs:'seconds',delegations:'sub-agent delegations',scout_calls:'scout explorations',specialist_calls:'specialist delegations',guards:'guards tripped (loops/caps)',escalations:'escalations to capable model',fallbacks:'provider fallbacks',tool_errors:'tool errors',submit_rejects:'unverified submits blocked',sy_capable:'Switchyard → capable',sy_efficient:'Switchyard → efficient'};
+  const lower=new Set(['steps','model_calls','tokens','cost','secs','guards','escalations','fallbacks','tool_errors','submit_rejects','scout_calls']);
+  const dlt=(k,x,y)=>{if(x==null||y==null||x===y)return '';const better=lower.has(k)?y<x:y>x;return ` <span class="badge ${better?'b-e':'b-r'}">${y>x?'+':''}${Math.round((y-x)/Math.max(Math.abs(x),1e-9)*100)}%</span>`};
+  $('#x-head').innerHTML=a?`<table><tr><th>per held-out task (avg)</th><th>v${a.version} · ${lab(a)}</th><th>v${b.version} · ${lab(b)}</th></tr><tr><td><b>solved (grader)</b></td><td>${a.solved}/${a.n}</td><td><b>${b.solved}/${b.n}</b></td></tr><tr><td>completed by own verifier</td><td>${a.self_ok}/${a.n}</td><td>${b.self_ok}/${b.n}</td></tr><tr><td>skills · specialist sub-agents</td><td>${(a.inventory.skills||[]).length} · ${(a.inventory.specialists||[]).length}</td><td>${(b.inventory.skills||[]).length} · ${(b.inventory.specialists||[]).length}</td></tr>`+X.keys.map(k=>`<tr><td>${L[k]||k}</td><td>${a.avg[k]}</td><td><b>${b.avg[k]}</b>${C.length>1?dlt(k,a.avg[k],b.avg[k]):''}</td></tr>`).join('')+`<tr><td>$ per solved task</td><td>${a.cost_per_solved??'-'}</td><td>${b.cost_per_solved??'-'}</td></tr></table><div class="muted">n = ${a.n} held-out tasks per evaluation; small sample: read changes as trends.</div>`:'<i>first evaluation running...</i>';
+  const tids=[...new Set(C.flatMap(p=>p.per_task.map(x=>x.task)))];
+  $('#x-matrix').innerHTML=C.length?'<table><tr><th>held-out task</th>'+C.map(p=>`<th>${lab(p)} (v${p.version})</th>`).join('')+'</tr>'+tids.map(t=>`<tr><td style="max-width:300px"><span class="badge b-p">long-tail</span> ${esc(((X.tasks[t]||{}).q||t).slice(0,120))}</td>`+C.map(p=>{const x=p.per_task.find(y=>y.task===t);if(!x)return '<td>-</td>';return `<td>${x.passed?'✅ solved':x.self_ok?'⚠ claimed done':'❌ not solved'}<div class="muted">${x.steps} actions · ${Math.round(x.secs)}s${x.specialist_calls?'<br><b>used specialist</b>':''}</div>${x.shot?`<a href="/shots/${x.shot}" target="_blank"><img src="/shots/${x.shot}" style="width:180px;border:1px solid #ddd;border-radius:6px;margin-top:4px"></a>`:''}</td>`}).join('')+'</tr>').join('')+'</table>':'<i>running...</i>';
+  $('#x-growth').innerHTML='<table><tr><th>version</th><th>skills</th><th>sub-agents</th></tr>'+X.growth.map(g=>`<tr><td><b>v${g.version}</b></td><td>${g.skills.length} <span class="muted">${esc(g.skills.join(', '))}</span></td><td>${g.subagents.length} <span class="muted">${esc(g.specialists.length?'+ '+g.specialists.join(', '):'scout, analyst, verifier')}</span></td></tr>`).join('')+'</table>';
+  $('#x-mid').innerHTML=`<div><span class="badge b-g">${X.midtask_counts.lessons} lessons</span> <span class="badge b-g">${X.midtask_counts.versions} harness versions</span> created while tasks were still running</div>`+X.midtask.slice().reverse().map(m=>`<div class="lessoncard">${m.kind==='harness'?'🛠':m.kind==='quarantine'?'🛡':'🧠'} <b>${esc(m.title)}</b> <span class="muted">${esc((m.task||'').replace('AZ-',''))}${m.at_step!=null?' · at step '+m.at_step:''}</span><div>${esc(m.text)}</div>${m.diff?`<details><summary>diff</summary>${diffHtml(m.diff)}</details>`:''}</div>`).join('');
+  const ts=X.brain.created;let bg='';if(ts.length>1){const t0=ts[0],t1=ts[ts.length-1];bg=`<polyline fill="none" stroke="#76b900" stroke-width="3" points="${ts.map((t,i)=>((t-t0)/(t1-t0+1e-9)*530+15)+','+(100-(i+1)/ts.length*85)).join(' ')}"/>`}$('#x-brain').innerHTML=bg+`<text x="15" y="14" font-size="12" fill="#555">${ts.length} lessons over the run</text>`;
+  $('#x-brainstats').innerHTML=`<span class="badge b-g">${X.brain.active} active</span> <span class="badge b-g">${X.brain.trusted} trusted</span> <span class="badge b-r">${X.brain.quarantined} quarantined</span> <span class="badge">${X.brain.retired} retired</span>`;
+  $('#x-lessons').innerHTML=X.brain.top.map(b=>`<div class="lessoncard">${b.trusted?'<span class="badge b-g">trusted</span> ':''}<span class="badge">${esc(b.type)}</span> ${esc(b.text)}</div>`).join('');
+  const tot=X.models.reduce((s,m)=>s+m.calls,0)||1,nem=X.models.filter(m=>m.nemotron).reduce((s,m)=>s+m.calls,0);
+  $('#x-models').innerHTML=`<div><span class="badge b-g">${Math.round(nem/tot*100)}% of calls on NVIDIA Nemotron</span> <span class="badge b-e">Switchyard efficient ${X.switchyard.efficient}</span> <span class="badge b-p">capable ${X.switchyard.capable}</span> <span class="badge b-y">escalations ${X.escalations}</span> <span class="badge">fallbacks ${X.fallbacks}</span></div><table style="margin-top:8px">`+X.models.map(m=>`<tr><td>${mn(m.model)}</td><td style="width:45%">${bar(m.calls/tot,m.nemotron?'#76b900':'#94a3b8')}</td><td>${m.calls}</td><td>$${m.cost}</td></tr>`).join('')+'</table>';
+  $('#x-safety').innerHTML='<table>'+`<tr><td>Destructive / submitting clicks attempted → denied</td><td><b>${X.denials['azure-guarded']||0}</b></td></tr><tr><td>Navigation outside Azure → denied</td><td><b>${X.denials['azure-egress']||0}</b></td></tr><tr><td>Password fields typed into</td><td><b>0</b></td></tr><tr><td>Improver reads of non-allowed files → denied</td><td><b>${X.denials['improver']||0}</b></td></tr><tr><td>Total cost</td><td><b>$${X.spent}</b></td></tr><tr><td>Prompt tokens from cache</td><td><b>${X.cached.toLocaleString()}</b></td></tr><tr><td>Human interventions</td><td><b>0</b></td></tr></table>`;
+  $('#x-edits').innerHTML=X.edits.slice().reverse().map(e=>`<div class="lessoncard"><span class="badge b-g">v${e.version}</span> <b>${esc(e.files.join(', '))}</b> <span class="muted">${esc(e.reason||'')}</span><div>${esc(e.hypotheses.join('; '))}</div><details><summary>diff</summary>${diffHtml(e.diff||'')}</details></div>`).join('')||'<i>edits appear during training</i>';
+  $('#x-train').innerHTML='<table><tr><th>batch</th><th>harness</th><th>solved</th><th>tasks (actions)</th></tr>'+X.train.map(t=>`<tr><td>${t.batch}</td><td>v${t.version}</td><td>${t.solved}/${t.n}</td><td class="muted">${t.per_task.map(x=>(x.passed?'✅':'❌')+' '+x.task.replace('AZ-','')+' ('+x.steps+')').join(' · ')}</td></tr>`).join('')+'</table>'}
  if(v==='brain'){const B=await (await fetch('/api/brain')).json(),bs=B.bullets;
   const ts=bs.map(b=>b.created).sort();if(ts.length>1){const t0=ts[0],t1=ts[ts.length-1];$('#growth').innerHTML=`<polyline fill="none" stroke="#76b900" stroke-width="3" points="${ts.map((t,i)=>((t-t0)/(t1-t0)*580+10)+','+(85-(i+1)/ts.length*75)).join(' ')}"/><text x="10" y="14" font-size="12" fill="#5b6573">${ts.length} lessons over time</text>`}
   $('#b-list').innerHTML=bs.slice().reverse().map(b=>`<div class="lessoncard">${b.quarantined?'<span class="badge b-r">quarantined</span> ':''}${b.trusted?'<span class="badge b-g">trusted</span> ':''}${b.retired?'<span class="badge">retired</span> ':''}<span class="badge">${esc(b.type)}</span> <span class="muted">${esc(b.scope)}</span><div>${b.retired?'<s>':''}${esc(b.text)}</div><div class="muted">helped ${b.helpful} · hurt ${b.harmful}</div></div>`).join('');

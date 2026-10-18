@@ -4,10 +4,8 @@ description: How the Azure portal is laid out and the fastest ways to open servi
 ---
 - The global search bar at the top ("Search resources, services, and docs") opens any service by name: type the
   service name, then click the matching item under "Services".
-- When opening a service, prefer the top search bar over menus or tiles for speed.
 - "Home" (portal.azure.com/#home) shows Azure services and recent resources; the menu (three lines, top left) lists
   services too.
 - Pages open as "blades" to the right; the breadcrumb at the top goes back; the X at the top right closes a blade.
 - List pages have a toolbar (+ Create, Refresh, ...) and a filter box above the grid.
 - Slow blades show loading dots: wait, then observe again.
-- **Filling tags on a creation form**: After opening the Tags tab, use `type_text` directly on the Name box (element typically 24) to enter the tag key, then use `type_text` directly on the Value box (element typically 28, adjacent to the Name box) to enter the tag value. Do NOT click the Name box first — typing focuses it automatically. Return to the Basics tab to set the region if needed.

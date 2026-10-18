@@ -1,18 +1,16 @@
-"""Fixed tools (FROZEN). Read-only SQL (row cap, timeout, no ATTACH); `python` runs in a Docker sandbox with no network,
+"""Fixed tools (FROZEN). `python` runs in a Docker sandbox with no network,
 no host mounts (answers are not mounted) and no secrets (OpenShell fallback, as the plan allows). Without Docker it falls
 back to a subprocess with an empty env plus a deny-list. Every denied/blocked attempt goes to runs/denials.jsonl."""
 import json
 import os
 import re
 import shutil
-import sqlite3
 import subprocess
 import sys
 import tempfile
 import time
 
 from .config import RUNS
-from .world import DATA
 
 ROW_CAP, SQL_TIMEOUT_S, PY_TIMEOUT_S = 200, 5, 20
 SANDBOX_IMAGE = "python:3.12-slim"
@@ -27,39 +25,6 @@ def _deny(kind: str, detail: str) -> str:
     with DENIALS.open("a") as f:
         f.write(json.dumps(dict(ts=time.time(), kind=kind, detail=detail[:200])) + "\n")
     return f"DENIED by sandbox policy: {kind}"
-
-
-def _conn(db: str) -> sqlite3.Connection:
-    c = sqlite3.connect(f"file:{DATA / db}?mode=ro", uri=True, timeout=2)
-    # ATTACH could open or create files outside the warehouse
-    c.set_authorizer(lambda action, *a: sqlite3.SQLITE_DENY if action in (sqlite3.SQLITE_ATTACH, sqlite3.SQLITE_DETACH)
-                     else sqlite3.SQLITE_OK)
-    deadline = time.time() + SQL_TIMEOUT_S
-    c.set_progress_handler(lambda: int(time.time() > deadline), 10_000)
-    return c
-
-
-def sql(db: str, query: str) -> str:
-    try:
-        with _conn(db) as c:
-            cur = c.execute(query)
-            cols = [d[0] for d in cur.description or []]
-            rows = cur.fetchmany(ROW_CAP + 1)
-    except Exception as e:  # sqlite errors are shown to the agent
-        return f"ERROR: {e}"
-    more = f"\n... truncated at {ROW_CAP} rows" if len(rows) > ROW_CAP else ""
-    return json.dumps(cols) + "\n" + "\n".join(json.dumps(r) for r in rows[:ROW_CAP]) + more
-
-
-def schema(db: str) -> str:
-    with _conn(db) as c:
-        return "\n".join(r[0] for r in c.execute("SELECT sql FROM sqlite_master WHERE type='table'"))
-
-
-def sample(db: str, table: str, n: int = 5) -> str:
-    if not table.replace("_", "").isalnum():
-        return "ERROR: bad table name"
-    return sql(db, f"SELECT * FROM {table} LIMIT {min(int(n), 20)}")
 
 
 def python(code: str) -> str:
