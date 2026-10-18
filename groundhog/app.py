@@ -502,7 +502,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:6px 8px;b
 <div class="kpi"><div class="l">Cost so far</div><div class="v" id="k-cost">$0</div><div class="d">Crusoe inference</div></div></div>
 
 <div class="view on" id="v-arch"><div class="card pad">
-<div class="tour"><button class="ghost" id="t-prev">Back</button><button id="t-next">Start tour</button><span class="tn" id="t-n"></span><span class="ttl" id="t-ttl">The whole system on one screen</span><button class="ghost" id="t-all" style="margin-left:auto">Show all</button></div>
+<div class="tour"><button class="ghost" id="t-prev">Back</button><button id="t-next">Start tour</button><span class="tn" id="t-n"></span><span class="ttl" id="t-ttl">The whole system on one screen</span><button class="ghost" id="t-play" style="margin-left:auto">▶ Play (1 min)</button><button class="ghost" id="t-all">Show all</button></div>
 <div class="tourtext" id="t-text">Click <b>Start tour</b> for a 7-step walkthrough, one idea at a time. Every number comes from the real runs shown in the other tabs.</div>
 <div class="arch" id="arch">
  <div class="an you" id="a-you" style="grid-column:1;grid-row:1/3"><b>You</b><div class="m">give a task in plain text<br>steer any time<br>approve risky clicks<br>say if it worked</div></div>
@@ -626,6 +626,8 @@ function tour(i){const a=$('#arch');ti=i;
  const st=TOUR[i];a.classList.add('touring');$$('#arch .an').forEach(n=>n.classList.toggle('on',st.b.includes(n.id.slice(2))));
  const lead=$('#a-lead');if(st.b.some(x=>['scout','analyst','verifier'].includes(x)))lead.classList.add('on');
  $('#t-ttl').textContent=st.t;$('#t-n').textContent=(i+1)+' / '+TOUR.length;$('#t-text').innerHTML=st.x();$('#t-next').textContent=i===TOUR.length-1?'Finish':'Next'}
+let tplay=null;function stopPlay(){clearInterval(tplay);tplay=null;$('#t-play').textContent='▶ Play (1 min)'}
+$('#t-play').onclick=()=>{if(tplay){stopPlay();return}tour(0);$('#t-play').textContent='■ Stop';tplay=setInterval(()=>{if(ti>=TOUR.length-1){stopPlay();return}tour(ti+1)},8000)};
 $('#t-next').onclick=()=>tour(ti>=TOUR.length-1?-1:ti+1);$('#t-prev').onclick=()=>tour(Math.max(-1,ti-1));$('#t-all').onclick=()=>tour(-1);
 function pulse(ids,t){ids.forEach(i=>{const n=document.getElementById('a-'+i);if(!n)return;n.classList.add('pulse');clearTimeout(n._t);n._t=setTimeout(()=>n.classList.remove('pulse'),1600)});if(t)$('#archnow').textContent=t}
 function arch(e){const r=e.role,k=e.kind;
