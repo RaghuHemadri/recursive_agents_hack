@@ -6,7 +6,7 @@ runs_prev*/
 runs_azure/browser_profile/
 runs_azure/auth_state.json
 runs_azure/browser_profile/
-runs_azure/state.db
+runs_azure/state.db*
 runs_azure/candidates/
 eval_azure/
 runs_azure/app.log
